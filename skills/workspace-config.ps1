@@ -1,12 +1,50 @@
 ﻿# AI Workspace shared config + helpers (production)
 # Status enum (cache.status): initialized | in_progress | done | unknown
 # Supports Windows PowerShell 5.1+ and PowerShell 7+ (Win/macOS/Linux)
-$script:AIWorkspaceBundleDirName = "codestatrFirst"
-$script:AIWorkspaceToolkitVersion = "1.3.0"
+# Exit codes: 0=OK 1=fail 2=usage 3=lock 4=manifest
+# PS 5.1 lacks $IsLinux/$IsMacOS — define before StrictMode
+if (-not (Get-Variable -Name IsLinux -Scope Global -ErrorAction SilentlyContinue)) { Set-Variable -Name IsLinux -Scope Global -Value $false }
+if (-not (Get-Variable -Name IsMacOS -Scope Global -ErrorAction SilentlyContinue)) { Set-Variable -Name IsMacOS -Scope Global -Value $false }
+Set-StrictMode -Version Latest
+$script:AIWorkspaceBundleDirName = if (-not [string]::IsNullOrWhiteSpace($env:AIWORKSPACE_BUNDLE_DIR)) {
+    $env:AIWORKSPACE_BUNDLE_DIR.Trim()
+}
+else {
+    "codestatrFirst"
+}
+$script:AIWorkspaceToolkitVersion = "1.4.0"
 $script:AIWorkspaceStatusEnum = @("initialized", "in_progress", "done", "unknown")
+$script:AIWorkspaceExitOk = 0
+$script:AIWorkspaceExitFail = 1
+$script:AIWorkspaceExitUsage = 2
+$script:AIWorkspaceExitLock = 3
+$script:AIWorkspaceExitManifest = 4
+$script:AIWorkspaceHeldLocks = New-Object 'System.Collections.Generic.HashSet[string]'
 
 function Get-AIWorkspaceBundleDirName {
     return $script:AIWorkspaceBundleDirName
+}
+
+function Get-AIWorkspaceExitCode {
+    param([ValidateSet("Ok", "Fail", "Usage", "Lock", "Manifest")][string]$Kind = "Ok")
+    switch ($Kind) {
+        "Ok" { return $script:AIWorkspaceExitOk }
+        "Usage" { return $script:AIWorkspaceExitUsage }
+        "Lock" { return $script:AIWorkspaceExitLock }
+        "Manifest" { return $script:AIWorkspaceExitManifest }
+        default { return $script:AIWorkspaceExitFail }
+    }
+}
+
+function Test-AIWorkspaceNonInteractive {
+    return ($Host.Name -eq "ServerRemoteHost") -or
+        ($env:CI -eq "true") -or
+        ($env:AIWORKSPACE_NONINTERACTIVE -eq "1") -or
+        (-not [Environment]::UserInteractive)
+}
+
+function Get-AIWorkspaceStatusEnum {
+    return @($script:AIWorkspaceStatusEnum)
 }
 
 function Get-AIWorkspaceProjectDocFileName {
@@ -114,7 +152,14 @@ function Test-LooksLikeProjectRoot {
     return $false
 }
 
+function Test-IsEmptyDirectory {
+    param([string]$FullPath)
+    $items = @(Get-ChildItem -LiteralPath $FullPath -Force -ErrorAction SilentlyContinue)
+    return ($items.Count -eq 0)
+}
+
 function Write-AIWorkspaceAllowAnyRootWarning {
+    Write-Warning "SECURITY: AIWORKSPACE_ALLOW_ANY_ROOT=1 is set — path safeguards are OFF."
     Write-Host ""
     Write-Host "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" -ForegroundColor Red
     Write-Host " SECURITY: AIWORKSPACE_ALLOW_ANY_ROOT=1 is set." -ForegroundColor Red
@@ -124,10 +169,57 @@ function Write-AIWorkspaceAllowAnyRootWarning {
     Write-Host ""
 }
 
+function Write-AIWorkspaceWarn {
+    param([Parameter(Mandatory = $true)][string]$Message)
+    # Warning stream is capturable via 3>&1 (unlike Write-Host on Windows PowerShell 5.1)
+    Write-Warning $Message
+}
+
+function Write-AIWorkspaceInfo {
+    param([Parameter(Mandatory = $true)][string]$Message)
+    # Information stream capturable via 6>&1; also print for interactive visibility
+    Write-Information $Message -InformationAction Continue
+}
+
+function Protect-AIWorkspaceMarkdownText {
+    <#
+    .SYNOPSIS
+    Neutralize markdown injection when embedding user Title/Requirement into .md files.
+    #>
+    param(
+        [AllowEmptyString()][string]$Value,
+        [ValidateSet("Inline", "Block")][string]$Mode = "Inline"
+    )
+
+    if ($null -eq $Value) { return "" }
+    $t = [string]$Value
+    $t = $t -replace "`r`n", "`n" -replace "`r", "`n"
+
+    $outLines = New-Object System.Collections.Generic.List[string]
+    foreach ($line in ($t -split "`n")) {
+        $l = $line
+        # Break ATX headings: entire leading run of # → fullwidth ＃ (before inline join)
+        if ($l -match '^(\s*)(#+)') {
+            $l = $Matches[1] + ([string]::new([char]0xFF03, $Matches[2].Length)) + $l.Substring($Matches[0].Length)
+        }
+        # Neutralize task-list / checkbox injection
+        $l = $l -replace '^(\s*)([-*+]|\d+\.)(\s+)\[([ xX])\]', '$1$2$3［$4］'
+        $l = $l -replace '\[([ xX])\]', '［$1］'
+        $outLines.Add($l) | Out-Null
+    }
+
+    if ($Mode -eq "Inline") {
+        $parts = @($outLines | ForEach-Object { $_.Trim() } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+        return (($parts -join " ").Trim() -replace '\s{2,}', ' ')
+    }
+    return ($outLines -join "`n")
+}
+
 function Assert-AIWorkspaceRootSafe {
     param(
         [Parameter(Mandatory = $true)]
-        [string]$RepositoryRoot
+        [string]$RepositoryRoot,
+        [switch]$AllowEmptyBootstrap
     )
 
     if ($env:AIWORKSPACE_ALLOW_ANY_ROOT -eq "1") {
@@ -154,14 +246,21 @@ function Assert-AIWorkspaceRootSafe {
     }
 
     if (-not (Test-LooksLikeProjectRoot -FullPath $full)) {
-        throw "Refusing -Root that does not look like a project: $full`nRequire .git, existing codestatrFirst/, or skills/init-workspace.ps1.`nOverride: AIWORKSPACE_ALLOW_ANY_ROOT=1 (DANGEROUS)"
+        # init-workspace passes -AllowEmptyBootstrap: allow any non-forbidden dir
+        # (including ones that already have README/src) so init can create the bundle.
+        if ($AllowEmptyBootstrap) {
+            Write-AIWorkspaceInfo "bootstrap allowed for init (not yet a marked project root): $full"
+            return
+        }
+        throw "Refusing -Root that does not look like a project: $full`nRequire .git, existing $($script:AIWorkspaceBundleDirName)/, or skills/init-workspace.ps1.`nOr run init-workspace.ps1 (bootstraps new folders), or git init first.`nOverride: AIWORKSPACE_ALLOW_ANY_ROOT=1 (DANGEROUS)"
     }
 }
 
 function Resolve-AIRepositoryRoot {
     param(
         [string]$Root = ".",
-        [string]$ScriptHome = $PSScriptRoot
+        [string]$ScriptHome = $PSScriptRoot,
+        [switch]$AllowEmptyBootstrap
     )
 
     $candidate = $null
@@ -191,7 +290,7 @@ function Resolve-AIRepositoryRoot {
     }
 
     $resolved = (Get-Item -LiteralPath $candidate).FullName
-    Assert-AIWorkspaceRootSafe -RepositoryRoot $resolved
+    Assert-AIWorkspaceRootSafe -RepositoryRoot $resolved -AllowEmptyBootstrap:$AllowEmptyBootstrap
     return $resolved
 }
 
@@ -246,12 +345,17 @@ function Invoke-WithAIWorkspaceLock {
         }
     }
     if ($null -eq $stream) {
-        throw "Timeout acquiring workspace lock '$LockName' after ${TimeoutSeconds}s: $lockPath`nAnother process may be writing cache/specs."
+        $err = "Timeout acquiring workspace lock '$LockName' after ${TimeoutSeconds}s: $lockPath`nAnother process may be writing cache/specs."
+        $ex = New-Object System.Exception $err
+        $ex.Data["ExitCode"] = (Get-AIWorkspaceExitCode -Kind Lock)
+        throw $ex
     }
     try {
+        [void]$script:AIWorkspaceHeldLocks.Add(($BundleRoot + "|" + $safeName))
         return & $Action
     }
     finally {
+        [void]$script:AIWorkspaceHeldLocks.Remove(($BundleRoot + "|" + $safeName))
         $stream.Dispose()
     }
 }
@@ -330,7 +434,7 @@ function Read-Utf8File {
         }
     }
     elseif (-not (Test-ValidUtf8Bytes -Bytes $bytes)) {
-        Write-Host "WARN: file may not be UTF-8: $Path (re-save as UTF-8 recommended)"
+        Write-AIWorkspaceWarn "file may not be UTF-8: $Path (re-save as UTF-8 recommended)"
     }
     return [System.Text.Encoding]::UTF8.GetString($bytes)
 }
@@ -339,7 +443,8 @@ function Normalize-AIWorkspaceName {
     param(
         [Parameter(Mandatory = $true)][AllowEmptyString()][string]$Value,
         [string]$FallbackPrefix = "module",
-        [switch]$AllowFallback
+        [switch]$AllowFallback,
+        [switch]$AsciiOnly
     )
 
     if ([string]::IsNullOrWhiteSpace($Value)) {
@@ -349,13 +454,20 @@ function Normalize-AIWorkspaceName {
         throw "Name/Title/ModuleName cannot be empty or whitespace."
     }
 
+    $ascii = $AsciiOnly -or ($env:AIWORKSPACE_ASCII_NAMES -eq "1")
     $normalized = $Value.Trim().ToLowerInvariant()
     $normalized = $normalized -replace "\s+", "-"
-    $normalized = $normalized -replace "[^\p{L}\p{N}\-_]", "-"
+    if ($ascii) {
+        # ASCII-safe folder names for picky filesystems / remotes
+        $normalized = $normalized -replace "[^a-z0-9\-_]", "-"
+    }
+    else {
+        $normalized = $normalized -replace "[^\p{L}\p{N}\-_]", "-"
+    }
     $normalized = $normalized -replace "-{2,}", "-"
     $normalized = $normalized.Trim("-")
     if ([string]::IsNullOrWhiteSpace($normalized)) {
-        if ($AllowFallback) {
+        if ($AllowFallback -or $ascii) {
             return "$FallbackPrefix-" + (Get-Date -Format "yyyyMMddHHmmss")
         }
         throw "Name/Title/ModuleName invalid after normalization: '$Value'"
@@ -374,6 +486,9 @@ function Get-UniqueModuleName {
         $name = "$Candidate-$index"
         $index++
         if ($index -gt 9999) { throw "Cannot allocate unique module name for: $Candidate" }
+    }
+    if ($name -ne $Candidate) {
+        Write-AIWorkspaceWarn "Module folder '$Candidate' already exists; created '$name' instead. Edit specs/$Candidate to update, or choose a unique -Title."
     }
     return $name
 }
@@ -418,10 +533,11 @@ function Write-ModuleCacheJson {
     param(
         [Parameter(Mandatory = $true)][string]$BundleRoot,
         [Parameter(Mandatory = $true)][string]$ModuleName,
-        [Parameter(Mandatory = $true)][System.Collections.IDictionary]$Fields
+        [Parameter(Mandatory = $true)][System.Collections.IDictionary]$Fields,
+        [switch]$AlreadyLocked
     )
 
-    return Invoke-WithAIWorkspaceLock -BundleRoot $BundleRoot -LockName "cache-$ModuleName" -Action {
+    $write = {
         $cacheDir = Join-Path $BundleRoot "cache"
         if (-not (Test-Path -LiteralPath $cacheDir)) {
             New-Item -ItemType Directory -Path $cacheDir -Force | Out-Null
@@ -438,12 +554,19 @@ function Write-ModuleCacheJson {
         Write-Utf8NoBomFile -Path $cacheFile -Content ($payload | ConvertTo-Json -Depth 6)
         return $cacheFile
     }
+
+    # Avoid nested locks: if caller already holds specs-create, write inline
+    $outerKey = $BundleRoot + "|specs-create"
+    $held = $script:AIWorkspaceHeldLocks.Contains($outerKey)
+    if ($AlreadyLocked -or $held) {
+        return & $write
+    }
+    return Invoke-WithAIWorkspaceLock -BundleRoot $BundleRoot -LockName "cache-$ModuleName" -Action $write
 }
 
 function Read-ModuleCacheJson {
     param(
-        [Parameter(Mandatory = $true)][string]$CachePath,
-        [switch]$NoOverwriteOnError
+        [Parameter(Mandatory = $true)][string]$CachePath
     )
 
     if (-not (Test-Path -LiteralPath $CachePath)) {
@@ -458,8 +581,9 @@ function Read-ModuleCacheJson {
     catch {
         $bak = "$CachePath.bak"
         Copy-Item -LiteralPath $CachePath -Destination $bak -Force
-        Write-Host "WARN: invalid cache JSON kept intact. Backup: $bak"
-        Write-Host "      Error: $($_.Exception.Message)"
+        Write-AIWorkspaceWarn "invalid cache JSON kept intact. Backup: $bak"
+        Write-AIWorkspaceWarn "cache parse error: $($_.Exception.Message)"
+        # Always preserve original + .bak; never overwrite caller-side
         return [pscustomobject]@{ Ok = $false; Object = $null; Error = $_.Exception.Message; Backup = $bak }
     }
 }
@@ -476,7 +600,32 @@ function Get-TasksProgressSummary {
     $done = 0
     $open = New-Object System.Collections.Generic.List[string]
     $rx = '^[ \t]*(?:[-*+]|\d+\.)[ \t]+\[([ xX])\][ \t]*(.*)$'
+    # Skip fenced code blocks (``` / ~~~) — marker-bit state machine
+    $inFence = $false
+    $fenceChar = $null
+    $fenceLen = 0
     foreach ($line in ($text -split "`r?`n")) {
+        if ($line -match '^[ \t]*([`~]{3,})(.*)$') {
+            $marker = $Matches[1]
+            $ch = $marker.Substring(0, 1)
+            $len = $marker.Length
+            $info = $Matches[2]
+            if (-not $inFence) {
+                $inFence = $true
+                $fenceChar = $ch
+                $fenceLen = $len
+                continue
+            }
+            # Closing fence: same character, length >= open, empty info string
+            if (($ch -eq $fenceChar) -and ($len -ge $fenceLen) -and ($info -match '^\s*$')) {
+                $inFence = $false
+                $fenceChar = $null
+                $fenceLen = 0
+                continue
+            }
+        }
+        if ($inFence) { continue }
+
         if ($line -notmatch $rx) { continue }
         $mark = $Matches[1]
         $item = $Matches[2].Trim()
@@ -488,6 +637,9 @@ function Get-TasksProgressSummary {
             $todo++
             $open.Add($item) | Out-Null
         }
+    }
+    if ($inFence) {
+        Write-AIWorkspaceWarn "unclosed fenced code block in $TasksPath — trailing lines ignored for progress"
     }
     return [pscustomobject]@{
         Todo      = $todo
@@ -528,7 +680,7 @@ function Test-AIWorkspaceManifest {
     if (-not (Test-Path -LiteralPath $manifestPath)) {
         $msg = "manifest.json missing in $ToolkitDir (run install-cursor-global-skill.ps1)"
         if ($strictMode) { throw $msg }
-        Write-Host "WARN: $msg"
+        Write-AIWorkspaceWarn $msg
         return $false
     }
     try {
@@ -555,7 +707,7 @@ function Test-AIWorkspaceManifest {
         if (-not $ok) {
             foreach ($e in $errors) {
                 if ($strictMode) { Write-Host "ERROR: $e" -ForegroundColor Red }
-                else { Write-Host "WARN: $e" }
+                else { Write-AIWorkspaceWarn $e }
             }
             if ($strictMode) {
                 throw "Manifest validation failed ($($errors.Count) issue(s)). Re-run install-cursor-global-skill.ps1 from the template repo."
@@ -565,7 +717,7 @@ function Test-AIWorkspaceManifest {
     }
     catch {
         if ($strictMode) { throw }
-        Write-Host "WARN: cannot validate manifest: $($_.Exception.Message)"
+        Write-AIWorkspaceWarn "cannot validate manifest: $($_.Exception.Message)"
         return $false
     }
 }
@@ -574,8 +726,55 @@ function Assert-AIWorkspaceToolkitReady {
     param([string]$ToolkitDir = $PSScriptRoot)
     $rt = Get-AIWorkspaceRuntimeInfo
     Write-Host "Runtime: PS $($rt.PSVersion) ($($rt.Edition)) on $($rt.OS) | toolkit $($rt.Toolkit)"
-    if (Test-Path -LiteralPath (Join-Path $ToolkitDir "manifest.json")) {
-        # Installed global copy: default soft check; hard-fail if STRICT_MANIFEST=1
+    $manifestPath = Join-Path $ToolkitDir "manifest.json"
+    if (-not (Test-Path -LiteralPath $manifestPath)) { return }
+    # Global toolkit (~/.cursor/skills/.../toolkit): hard-fail on drift unless AIWORKSPACE_STRICT_MANIFEST=0
+    $isGlobal = ($ToolkitDir -match '[\\/]\.cursor[\\/]skills[\\/]')
+    $forceSoft = ($env:AIWORKSPACE_STRICT_MANIFEST -eq "0")
+    $forceHard = ($env:AIWORKSPACE_STRICT_MANIFEST -eq "1")
+    if (($isGlobal -or $forceHard) -and -not $forceSoft) {
+        try {
+            Test-AIWorkspaceManifest -ToolkitDir $ToolkitDir -Strict | Out-Null
+        }
+        catch {
+            Write-Host "ERROR: $($_.Exception.Message)" -ForegroundColor Red
+            Write-Host "Re-run install from the template repo, or set AIWORKSPACE_STRICT_MANIFEST=0 to warn-only."
+            exit (Get-AIWorkspaceExitCode -Kind Manifest)
+        }
+    }
+    else {
         [void](Test-AIWorkspaceManifest -ToolkitDir $ToolkitDir)
     }
+}
+
+function Write-AIWorkspaceJson {
+    param([Parameter(Mandatory = $true)]$Object)
+    $Object | ConvertTo-Json -Depth 8 -Compress:$false
+}
+
+function Get-AIWorkspaceBatchStatePath {
+    param([Parameter(Mandatory = $true)][string]$BundleRoot)
+    return (Join-Path (Join-Path $BundleRoot "cache") ".batch-progress.json")
+}
+
+function Read-AIWorkspaceBatchState {
+    param([Parameter(Mandatory = $true)][string]$BundleRoot)
+    $p = Get-AIWorkspaceBatchStatePath -BundleRoot $BundleRoot
+    if (-not (Test-Path -LiteralPath $p)) { return $null }
+    try {
+        return (Read-Utf8File -Path $p -Strict) | ConvertFrom-Json
+    }
+    catch {
+        Write-AIWorkspaceWarn "corrupt batch state ignored: $p"
+        return $null
+    }
+}
+
+function Write-AIWorkspaceBatchState {
+    param(
+        [Parameter(Mandatory = $true)][string]$BundleRoot,
+        [Parameter(Mandatory = $true)]$State
+    )
+    $p = Get-AIWorkspaceBatchStatePath -BundleRoot $BundleRoot
+    Write-Utf8NoBomFile -Path $p -Content ($State | ConvertTo-Json -Depth 6)
 }

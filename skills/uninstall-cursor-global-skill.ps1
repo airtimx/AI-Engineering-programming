@@ -19,14 +19,17 @@ else {
 
 if (-not (Test-Path -LiteralPath $globalSkill)) {
     Write-Host "Not installed: $globalSkill"
-    exit 0
+    exit (Get-AIWorkspaceExitCode -Kind Ok)
 }
 
 if (-not $Force) {
+    if (Test-AIWorkspaceNonInteractive) {
+        throw "Non-interactive uninstall requires -Force."
+    }
     $ans = Read-Host "Delete global skill at $globalSkill ? (y/N)"
     if ($ans -notmatch '^[yY]') {
         Write-Host "Cancelled."
-        exit 0
+        exit (Get-AIWorkspaceExitCode -Kind Ok)
     }
 }
 
@@ -38,3 +41,4 @@ $bak = Join-Path $bakRoot "aiworkspace-manager-$stamp"
 Move-Item -LiteralPath $globalSkill -Destination $bak -Force
 Write-Host "Moved to backup: $bak"
 Write-Host "Global skill uninstalled."
+exit (Get-AIWorkspaceExitCode -Kind Ok)

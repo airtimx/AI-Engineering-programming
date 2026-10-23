@@ -35,6 +35,9 @@ codestatrFirst/.locks/*
 !codestatrFirst/.locks/.gitkeep
 *.lock
 
+# Batch resume cursor (local)
+codestatrFirst/cache/.batch-progress.json
+
 # Pester / local
 TestResults.xml
 coverage.xml

@@ -12,7 +12,8 @@ $ErrorActionPreference = "Stop"
 
 Assert-AIWorkspaceToolkitReady -ToolkitDir $PSScriptRoot
 
-$repoRoot = Resolve-AIRepositoryRoot -Root $Root -ScriptHome $PSScriptRoot
+# Empty dirs are allowed here so init can bootstrap a brand-new project folder
+$repoRoot = Resolve-AIRepositoryRoot -Root $Root -ScriptHome $PSScriptRoot -AllowEmptyBootstrap
 $bundleRoot = Get-AIWorkspaceBundlePath -RepositoryRoot $repoRoot
 $ver = Get-AIWorkspaceToolkitVersion
 

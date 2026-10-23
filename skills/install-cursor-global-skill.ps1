@@ -49,7 +49,8 @@ $copyNames = @(
     "workspace-config.ps1", "init-workspace.ps1", "auto-requirement.ps1",
     "new-module-spec.ps1", "new-bugfix.ps1", "resume-workspace.ps1",
     "validate-workspace.ps1", "install-cursor-global-skill.ps1",
-    "uninstall-cursor-global-skill.ps1", "VERSION", "requirements.batch.txt"
+    "uninstall-cursor-global-skill.ps1", "run-tests.ps1", "analyze-workspace.ps1",
+    "VERSION", "requirements.batch.txt"
 )
 foreach ($n in $copyNames) {
     $src = Join-Path $srcSkills $n

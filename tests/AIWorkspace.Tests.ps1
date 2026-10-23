@@ -39,6 +39,20 @@ Describe "Get-TasksProgressSummary" {
         $s.Todo | Should -Be 2
         $s.Done | Should -Be 1
     }
+    It "skips fenced checkboxes" {
+        $p = Join-Path $TestDrive "fence.md"
+        @(
+            "- [ ] keep"
+            '```'
+            "- [ ] fake inside fence"
+            '```'
+            "- [x] done-out"
+        ) | Set-Content -Path $p -Encoding utf8
+        $s = Get-TasksProgressSummary -TasksPath $p
+        $s.Todo | Should -Be 1
+        $s.Done | Should -Be 1
+        $s.OpenItems | Should -Not -Contain "fake inside fence"
+    }
 }
 
 Describe "Write-ModuleCacheJson locking" {
@@ -58,10 +72,10 @@ Describe "Test-AIWorkspaceManifest -Strict" {
     It "throws when hash drifts" {
         $dir = Join-Path $TestDrive "tk"
         New-Item -ItemType Directory -Path $dir | Out-Null
-        Set-Content -Path (Join-Path $dir "VERSION") -Value "1.3.0" -Encoding utf8
+        Set-Content -Path (Join-Path $dir "VERSION") -Value "1.4.0" -Encoding utf8
         Set-Content -Path (Join-Path $dir "a.ps1") -Value "hi" -Encoding utf8
         $man = @{
-            version = "1.3.0"
+            version = "1.4.0"
             files   = @(@{ name = "a.ps1"; sha256 = "00"; bytes = 2 }, @{ name = "VERSION"; sha256 = "00"; bytes = 1 })
         } | ConvertTo-Json -Depth 5
         Set-Content -Path (Join-Path $dir "manifest.json") -Value $man -Encoding utf8
@@ -69,16 +83,34 @@ Describe "Test-AIWorkspaceManifest -Strict" {
     }
 }
 
+Describe "Protect-AIWorkspaceMarkdownText" {
+    It "strips ATX injection from inline title" {
+        $t = Protect-AIWorkspaceMarkdownText -Value "T1`n## Injected" -Mode Inline
+        $t | Should -Not -Match '##'
+        $t.Contains([string]::new([char]0xFF03, 2)) | Should -Be $true
+    }
+    It "neutralizes checkbox injection" {
+        $t = Protect-AIWorkspaceMarkdownText -Value "- [ ] fake" -Mode Block
+        $t | Should -Not -Match '\[ \]'
+        $t | Should -Match '［ ］'
+    }
+}
+
 Describe "Path safety" {
     It "rejects Windows system root" {
         { Assert-AIWorkspaceRootSafe -RepositoryRoot "C:\Windows" } | Should -Throw
+    }
+    It "allows empty dir with AllowEmptyBootstrap" {
+        $d = Join-Path $TestDrive "empty-boot"
+        New-Item -ItemType Directory -Path $d | Out-Null
+        { Assert-AIWorkspaceRootSafe -RepositoryRoot $d -AllowEmptyBootstrap } | Should -Not -Throw
     }
 }
 
 Describe "Runtime info" {
     It "returns toolkit version" {
         $r = Get-AIWorkspaceRuntimeInfo
-        $r.Toolkit | Should -Be "1.3.0"
+        $r.Toolkit | Should -Be "1.4.0"
         $r.PSVersion | Should -Not -BeNullOrEmpty
     }
 }

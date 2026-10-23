@@ -7,7 +7,7 @@
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "workspace-config.ps1")
 Assert-AIWorkspaceToolkitReady -ToolkitDir $PSScriptRoot
-$repoRoot = Resolve-AIRepositoryRoot -Root $Root -ScriptHome $PSScriptRoot
+$repoRoot = Resolve-AIRepositoryRoot -Root $Root -ScriptHome $PSScriptRoot -AllowEmptyBootstrap
 & (Join-Path $PSScriptRoot "init-workspace.ps1") -Root $repoRoot
 $WorkspaceBundle = Get-AIWorkspaceBundlePath -RepositoryRoot $repoRoot
 
@@ -16,6 +16,7 @@ if ([string]::IsNullOrWhiteSpace($ModuleName)) {
 }
 
 Invoke-WithAIWorkspaceLock -BundleRoot $WorkspaceBundle -LockName "specs-create" -Action {
+    $displayName = Protect-AIWorkspaceMarkdownText -Value $ModuleName -Mode Inline
     $safeName = Normalize-AIWorkspaceName -Value $ModuleName
     $safeName = Get-UniqueModuleName -BaseRoot $WorkspaceBundle -Candidate $safeName
 
@@ -34,7 +35,7 @@ Invoke-WithAIWorkspaceLock -BundleRoot $WorkspaceBundle -LockName "specs-create"
 # Spec - $safeName
 
 ## Title
-$ModuleName
+$displayName
 
 ## Background
 - 说明为何需要本模块。
@@ -88,7 +89,7 @@ $ModuleName
     $progress = Get-TasksProgressSummary -TasksPath $tasksPath
     $fields = New-AIWorkspaceCacheSchema `
         -ModuleName $safeName `
-        -Title $ModuleName `
+        -Title $displayName `
         -Requirement "" `
         -Priority "P2" `
         -Status "initialized" `

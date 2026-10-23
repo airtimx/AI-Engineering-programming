@@ -24,10 +24,19 @@ foreach ($f in @(
         "workspace-config.ps1", "init-workspace.ps1", "auto-requirement.ps1",
         "new-module-spec.ps1", "new-bugfix.ps1", "resume-workspace.ps1",
         "validate-workspace.ps1", "install-cursor-global-skill.ps1",
-        "uninstall-cursor-global-skill.ps1", "VERSION"
+        "uninstall-cursor-global-skill.ps1", "run-tests.ps1", "analyze-workspace.ps1", "VERSION"
     )) {
     Assert-True (Test-Path -LiteralPath (Join-Path $PSScriptRoot $f)) "present: $f"
 }
+
+# Markdown injection neutralization
+$inj = Protect-AIWorkspaceMarkdownText -Value "T1`n## Injected" -Mode Inline
+Assert-True ($inj -notmatch '(?m)^##') "title inline has no ATX heading"
+Assert-True ($inj.Contains([string]::new([char]0xFF03, 2))) "heading hashes fullwidth-escaped"
+Assert-True ($inj -notmatch '##') "no ASCII ## left in inline title"
+$injBlock = Protect-AIWorkspaceMarkdownText -Value "- [ ] fake todo" -Mode Block
+Assert-True ($injBlock -notmatch '\[ \]') "checkbox brackets neutralized"
+Assert-True ($injBlock -match '［ ］') "checkbox uses fullwidth brackets"
 
 # Naming
 try {
@@ -53,6 +62,24 @@ $prog = Get-TasksProgressSummary -TasksPath $tmpTasks
 Assert-True ($prog.Todo -eq 4 -and $prog.Done -eq 1) "checkbox variants TODO=4 DONE=1 (got T=$($prog.Todo) D=$($prog.Done))"
 Remove-Item $tmpTasks -Force -ErrorAction SilentlyContinue
 
+# Fenced checkboxes must be ignored
+$fenceTasks = Join-Path ([IO.Path]::GetTempPath()) ("aiws-fence-" + [guid]::NewGuid().ToString("N") + ".md")
+@(
+    "- [ ] real one",
+    "- [ ] real two",
+    '```',
+    "- [ ] fake inside fence",
+    "- [x] also fake",
+    '```',
+    "~~~md",
+    "- [ ] tilde fence fake",
+    "~~~"
+) | Set-Content -Path $fenceTasks -Encoding UTF8
+$fp = Get-TasksProgressSummary -TasksPath $fenceTasks
+Assert-True ($fp.Todo -eq 2 -and $fp.Done -eq 0) "skip fenced todos TODO=2 (got T=$($fp.Todo) D=$($fp.Done))"
+Assert-True ($fp.OpenItems -notcontains "fake inside fence") "fence item not in OpenItems"
+Remove-Item $fenceTasks -Force -ErrorAction SilentlyContinue
+
 # Status derivation
 Assert-True ((Get-DerivedModuleStatus -Todo 4 -Done 0) -eq "initialized") "status initialized"
 Assert-True ((Get-DerivedModuleStatus -Todo 2 -Done 1) -eq "in_progress") "status in_progress"
@@ -65,6 +92,33 @@ Assert-True $threw "block C:\Windows"
 $threw = $false
 try { Assert-AIWorkspaceRootSafe -RepositoryRoot "D:\" } catch { $threw = $true }
 Assert-True $threw "block drive root D:\"
+
+# Bootstrap: without flag fails; with flag allows empty OR dir with README
+$emptyDir = Join-Path ([IO.Path]::GetTempPath()) ("aiws-empty-" + [guid]::NewGuid().ToString("N"))
+New-Item -ItemType Directory -Path $emptyDir | Out-Null
+try {
+    $threw = $false
+    try { Assert-AIWorkspaceRootSafe -RepositoryRoot $emptyDir } catch { $threw = $true }
+    Assert-True $threw "empty dir rejected without bootstrap"
+    $threw = $false
+    try { Assert-AIWorkspaceRootSafe -RepositoryRoot $emptyDir -AllowEmptyBootstrap } catch { $threw = $true }
+    Assert-True (-not $threw) "empty dir allowed with AllowEmptyBootstrap"
+    Write-Utf8NoBomFile -Path (Join-Path $emptyDir "README.md") -Content "# hi"
+    $threw = $false
+    try { Assert-AIWorkspaceRootSafe -RepositoryRoot $emptyDir -AllowEmptyBootstrap } catch { $threw = $true }
+    Assert-True (-not $threw) "README-only dir allowed with AllowEmptyBootstrap"
+}
+finally {
+    Remove-Item -LiteralPath $emptyDir -Recurse -Force -ErrorAction SilentlyContinue
+}
+
+# Exit code helpers
+Assert-True ((Get-AIWorkspaceExitCode -Kind Ok) -eq 0) "exit Ok=0"
+Assert-True ((Get-AIWorkspaceExitCode -Kind Manifest) -eq 4) "exit Manifest=4"
+
+# AsciiNames
+$ascii = Normalize-AIWorkspaceName -Value "用户登录 Login" -AsciiOnly
+Assert-True ($ascii -match '^[a-z0-9\-]+$' -and $ascii -match 'login') "AsciiOnly strips CJK"
 
 # Missing root message before Get-Item
 $threw = $false
@@ -143,6 +197,18 @@ $bakHit = @(Get-ChildItem -LiteralPath $parentTrash -Directory -ErrorAction Sile
 Assert-True ($bakHit.Count -ge 1) "uninstall backup under .trash"
 Remove-Item -LiteralPath $parentTrash -Recurse -Force -ErrorAction SilentlyContinue
 
+# init on brand-new empty directory (no .git)
+$emptyInit = Join-Path ([IO.Path]::GetTempPath()) ("aiws-boot-" + [guid]::NewGuid().ToString("N"))
+New-Item -ItemType Directory -Path $emptyInit | Out-Null
+try {
+    & (Join-Path $PSScriptRoot "init-workspace.ps1") -Root $emptyInit
+    $eb = Get-AIWorkspaceBundlePath -RepositoryRoot $emptyInit
+    Assert-True (Test-Path -LiteralPath $eb) "init bootstraps empty directory"
+}
+finally {
+    Remove-Item -LiteralPath $emptyInit -Recurse -Force -ErrorAction SilentlyContinue
+}
+
 # Integration fixture
 $tmpRoot = Join-Path ([IO.Path]::GetTempPath()) ("aiws-val-" + [guid]::NewGuid().ToString("N"))
 New-Item -ItemType Directory -Path $tmpRoot | Out-Null
@@ -172,8 +238,11 @@ try {
 
         & (Join-Path $PSScriptRoot "new-module-spec.ps1") -Root $tmpRoot -ModuleName "mod-b"
         & (Join-Path $PSScriptRoot "new-bugfix.ps1") -Root $tmpRoot -Title "bug-a"
+        & (Join-Path $PSScriptRoot "new-bugfix.ps1") -Root $tmpRoot -Title "bug-a" -FollowUpNote "second pass"
         $bugs = @(Get-ChildItem -LiteralPath (Join-Path $bundle "bugfix") -Filter "*.md")
-        Assert-True ($bugs.Count -ge 1) "new-bugfix created"
+        Assert-True ($bugs.Count -eq 1) "new-bugfix same-day still one file"
+        $bugText = Read-Utf8File -Path $bugs[0].FullName
+        Assert-True ($bugText -match '(?m)^## Follow-up') "bugfix appends Follow-up on second run"
 
         # Ambiguous prefix: login-a + login-b (no exact "login")
         New-Item -ItemType Directory -Path (Join-Path $bundle (Join-Path "specs" "login-a")) -Force | Out-Null
@@ -204,9 +273,55 @@ try {
         Assert-True ($before.Hash -eq $after.Hash) "corrupt cache not overwritten"
 
         $batch = Join-Path $tmpRoot "b.txt"
-        Write-Utf8NoBomFile -Path $batch -Content "T1|req with | pipe inside|P1`n"
+        Write-Utf8NoBomFile -Path $batch -Content @"
+# this is a comment (hash+space)
+# also comment with | inside because of space after hash
+T1|req with | pipe inside|P1
+#hash-title|must keep this|P2
+"@
         & (Join-Path $PSScriptRoot "auto-requirement.ps1") -Root $tmpRoot -BatchFile $batch
-        Assert-True $true "batch with pipe in requirement"
+        $hashMod = Join-Path $bundle (Join-Path "specs" "hash-title")
+        Assert-True (Test-Path -LiteralPath $hashMod) "batch keeps #title|req (no space after #)"
+        $falseMod = Join-Path $bundle (Join-Path "specs" "also")
+        Assert-True (-not (Test-Path -LiteralPath $falseMod)) "batch # space line with | is comment"
+
+        # Same title twice → uniquify -2 + capturable warning
+        $dupWarn = $null
+        $null = & (Join-Path $PSScriptRoot "auto-requirement.ps1") -Root $tmpRoot -Title "DupMod" -Requirement "first" -Priority P2 3>&1 | ForEach-Object { $dupWarn += "`n$_"; $_ }
+        $null = & (Join-Path $PSScriptRoot "auto-requirement.ps1") -Root $tmpRoot -Title "DupMod" -Requirement "second" -Priority P2 3>&1 | ForEach-Object { $dupWarn += "`n$_"; $_ }
+        Assert-True (Test-Path -LiteralPath (Join-Path $bundle (Join-Path "specs" "dupmod"))) "first DupMod folder"
+        Assert-True (Test-Path -LiteralPath (Join-Path $bundle (Join-Path "specs" "dupmod-2"))) "second DupMod becomes dupmod-2"
+        Assert-True ($dupWarn -match "already exists") "uniquify warning on warning stream"
+
+        # Injection does not create ATX heading / real checkbox in spec
+        $injTitle = "T1" + [char]10 + "## Injected"
+        & (Join-Path $PSScriptRoot "auto-requirement.ps1") -Root $tmpRoot -Title $injTitle -Requirement "- [ ] fake" -Priority P3
+        $injSpec = Get-ChildItem -LiteralPath (Join-Path $bundle "specs") -Directory | Where-Object { $_.Name -like "t1*" } | Select-Object -First 1
+        $specBody = Read-Utf8File -Path (Join-Path $injSpec.FullName "spec.md")
+        Assert-True ($specBody -notmatch '(?m)^## Injected') "no injected ATX heading in spec"
+        Assert-True ($specBody -notmatch '(?m)^- \[ \] fake') "no injected real checkbox in spec"
+
+        # SyncCache normalizes invalid priority/status and display matches disk
+        $fixMod = "fixprio"
+        New-Item -ItemType Directory -Path (Join-Path $bundle (Join-Path "specs" $fixMod)) -Force | Out-Null
+        Write-Utf8NoBomFile -Path (Join-Path (Join-Path $bundle (Join-Path "specs" $fixMod)) "tasks.md") -Content "# t`n- [ ] a`n"
+        $fixCache = Join-Path $bundle (Join-Path "cache" "$fixMod.json")
+        Write-Utf8NoBomFile -Path $fixCache -Content (@{
+                schema_version = 1; module = $fixMod; title = $fixMod; requirement = "r"
+                priority = "P9"; status = "bogus"; open_todo_count = 1; done_count = 0
+            } | ConvertTo-Json)
+        $warnBuf = $null
+        $null = & (Join-Path $PSScriptRoot "resume-workspace.ps1") -Root $tmpRoot -Module $fixMod -ExactModule -SyncCache `
+            3>&1 2>&1 | ForEach-Object {
+            $warnBuf += "`n$($_.ToString())"
+            $_
+        } | Out-String
+        Assert-True ($warnBuf -match '修正缓存优先级 P9→P2') "WARN priority normalize"
+        Assert-True ($warnBuf -match '修正缓存 status bogus→') "WARN status normalize"
+        $fixed = (Read-Utf8File -Path $fixCache) | ConvertFrom-Json
+        Assert-True ($fixed.priority -eq "P2") "cache priority written P2"
+        Assert-True ($fixed.status -eq "initialized") "cache status written initialized"
+        # Display uses same $priority/$status after SyncCache (Write-Host); disk is source of truth
     }
 }
 finally {

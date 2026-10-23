@@ -1,61 +1,79 @@
 # AI Skill Workspace
 
-可复用 AI 工作区脚手架（**toolkit v1.3.0**，MIT）。业务与文档一律在 **`codestatrFirst/`**；仓库根 **`skills/`** 仅放 PowerShell 工具。
+可复用 AI 工作区脚手架（**toolkit v1.4.0**，MIT）。业务文档在 **`codestatrFirst/`**（可用环境变量 `AIWORKSPACE_BUNDLE_DIR` 改名）；仓库根 **`skills/`** 为 PowerShell 工具包。
 
-**支持**：Windows PowerShell 5.1+、PowerShell 7+（Win；Linux/macOS 尽力支持）。
+**支持矩阵**：Windows PowerShell 5.1（主）、PowerShell 7+ Windows；Linux/macOS 尽力。依赖 Cursor 全局/项目 Skill 做对话触发，脚本本身可在终端独立运行。
+
+**产品范围**：生成 specs/cache/bugfix 骨架与续接状态，**不**自动开 PR/Issue/改业务代码（刻意保持薄）。
 
 ## 快速开始
 
 ```powershell
-git init   # 本仓库若尚无 Git
 ./skills/init-workspace.ps1
 ./skills/auto-requirement.ps1 -Title "用户登录" -Requirement "手机号验证码登录" -Priority P1
 ./skills/resume-workspace.ps1 -SyncCache
+./skills/resume-workspace.ps1 -Json          # 机器可读
 ./skills/validate-workspace.ps1
+./skills/run-tests.ps1                       # Pester 5
+./skills/analyze-workspace.ps1               # PSScriptAnalyzer
 ```
 
-其它项目：
+其它项目（含已有 README/src、尚无 `.git` 的目录也可被 **init** 引导）：
 
 ```powershell
 pwsh -NoProfile -File "…/skills/init-workspace.ps1" -Root "D:\path\to\project"
 ```
 
-`-Root` 须像项目目录（含 `.git` / 已有 `codestatrFirst` / 本仓库 `skills`）。盘符根、系统路径、UNC 会被拒绝。
-
 ### 危险逃逸口（标红）
 
-**`AIWORKSPACE_ALLOW_ANY_ROOT=1` 会关闭路径防护。** 仅在受控排错时使用；正常流程不要设置。设置后每次解析 `-Root` 都会打印红色 SECURITY 横幅。详见 [RELEASE.md](RELEASE.md)。
+**`AIWORKSPACE_ALLOW_ANY_ROOT=1` 关闭路径防护。** 仅排错使用。
 
-## Cursor 全局安装
+### 全局 Skill 一致性（标红）
 
-**必须从本模板仓库运行**（勿在 `~/.cursor/.../toolkit` 里跑安装器）：
+安装到 `~/.cursor/skills/.../toolkit` 后，**默认严格校验** `manifest.json`（漂移 exit 4）。  
+临时忽略：`$env:AIWORKSPACE_STRICT_MANIFEST="0"`。务必从本仓库跑 `install-cursor-global-skill.ps1` 更新。
+
+## Cursor 安装
 
 ```powershell
 ./skills/install-cursor-global-skill.ps1
+./skills/uninstall-cursor-global-skill.ps1 -Force   # 非交互必须 -Force
 ```
 
-写入 `%USERPROFILE%\.cursor\skills\aiworkspace-manager\`（非 Windows 为 `$HOME/.cursor/...`）与 **`toolkit/manifest.json`（SHA256）**。  
-漂移硬失败：`$env:AIWORKSPACE_STRICT_MANIFEST="1"`。卸载：`./skills/uninstall-cursor-global-skill.ps1`。
+## 跨设备
 
-## 跨设备续接
-
-1. 使用本仓库 Git（或 `git init` + remote）提交（含 `codestatrFirst/**/.gitkeep`）  
-2. 其它电脑 `git pull`  
+1. 提交本仓库（或 `git init` + 配置 `origin`）  
+2. 其它机器 `git pull`  
 3. `./skills/resume-workspace.ps1 -SyncCache`  
-4. 按 `tasks.md` 未完成项继续  
 
-**勿只拷贝 `cache/`**。模块前缀歧义时用 `-ExactModule`。
+**勿只拷贝 `cache/`**。歧义前缀用 `-ExactModule`；`-AllowAmbiguousPrefix` 仅取**第一个**匹配并警告。
+
+## 批量
+
+```powershell
+./skills/auto-requirement.ps1 -BatchFile .\skills\requirements.batch.txt
+# 中途失败后：
+./skills/auto-requirement.ps1 -BatchFile .\skills\requirements.batch.txt -ResumeBatch
+```
+
+进度写入 `codestatrFirst/cache/.batch-progress.json`（已 gitignore）。
+
+注释：`#` 或 `# ` 开头；数据 `#tag|req|P1`（`#` 后无空格）。
+
+同名 `-Title` → `name-2` + Warning（不覆盖）。`-AsciiNames` 或 `AIWORKSPACE_ASCII_NAMES=1` 强制 ASCII 目录名。
+
+## 退出码
+
+| 码 | 含义 |
+|----|------|
+| 0 | 成功 |
+| 1 | 失败 |
+| 2 | 用法/歧义 |
+| 3 | 锁超时 |
+| 4 | 全局 manifest 漂移 |
 
 ## 质量门禁
 
-- 本地：`./skills/validate-workspace.ps1` + Pester `tests/`  
-- CI：`.github/workflows/ci.yml`（Windows 全量 + Ubuntu pwsh 冒烟）  
-- 发布清单：[RELEASE.md](RELEASE.md) · 变更：[CHANGELOG.md](CHANGELOG.md) · 许可：[LICENSE](LICENSE)
-
-## 并发
-
-写 cache / 创建模块时使用 `codestatrFirst/.locks/*.lock`（跨进程文件锁）。
-
-## cache.status
-
-`initialized` | `in_progress` | `done` | `unknown`
+- `validate-workspace.ps1` · `run-tests.ps1` · `analyze-workspace.ps1`  
+- CI：validate + Pester + PSScriptAnalyzer（Windows）+ Ubuntu 冒烟  
+- [RELEASE.md](RELEASE.md) · [CHANGELOG.md](CHANGELOG.md) · [LICENSE](LICENSE)

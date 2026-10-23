@@ -19,21 +19,17 @@ jobs:
           ./skills/validate-workspace.ps1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Install Pester 5
+      - name: Pester unit tests (via run-tests.ps1)
         shell: pwsh
         run: |
-          Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -ErrorAction SilentlyContinue
-          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
-          Install-Module Pester -MinimumVersion 5.5.0 -Force -SkipPublisherCheck -Scope CurrentUser -Confirm:$false
+          ./skills/run-tests.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Pester unit tests
+      - name: PSScriptAnalyzer
         shell: pwsh
         run: |
-          $cfg = New-PesterConfiguration
-          $cfg.Run.Path = "./tests"
-          $cfg.Run.Exit = $true
-          $cfg.Output.Verbosity = "Detailed"
-          Invoke-Pester -Configuration $cfg
+          ./skills/analyze-workspace.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
   validate-ubuntu-pwsh:
     name: validate (ubuntu pwsh)

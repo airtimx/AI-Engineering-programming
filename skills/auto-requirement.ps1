@@ -5,14 +5,18 @@
     [ValidateSet("P0", "P1", "P2", "P3")]
     [string]$Priority = "P2",
     [string]$Root = ".",
-    [switch]$ForceDoc
+    [switch]$ForceDoc,
+    [switch]$AsciiNames,
+    [switch]$ResumeBatch,
+    [switch]$Json
 )
 
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "workspace-config.ps1")
 Assert-AIWorkspaceToolkitReady -ToolkitDir $PSScriptRoot
 
-$repoRoot = Resolve-AIRepositoryRoot -Root $Root -ScriptHome $PSScriptRoot
+# Allow bootstrap so dirs with README/src (but no .git yet) can be initialized
+$repoRoot = Resolve-AIRepositoryRoot -Root $Root -ScriptHome $PSScriptRoot -AllowEmptyBootstrap
 
 # init once (skip rewriting 项目说明 unless -ForceDoc)
 if ($ForceDoc) {
@@ -35,26 +39,28 @@ function New-RequirementModule {
         throw "Title and Requirement are required for each item."
     }
 
-    return Invoke-WithAIWorkspaceLock -BundleRoot $BaseRoot -LockName "specs-create" -Action {
-    $createdAt = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
-    $moduleName = Normalize-AIWorkspaceName -Value $InputTitle
-    $moduleName = Get-UniqueModuleName -BaseRoot $BaseRoot -Candidate $moduleName
+    Invoke-WithAIWorkspaceLock -BundleRoot $BaseRoot -LockName "specs-create" -Action {
+        $createdAt = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+        $safeTitle = Protect-AIWorkspaceMarkdownText -Value $InputTitle -Mode Inline
+        $safeRequirement = Protect-AIWorkspaceMarkdownText -Value $InputRequirement -Mode Block
+        $moduleName = Normalize-AIWorkspaceName -Value $InputTitle -AsciiOnly:$AsciiNames
+        $moduleName = Get-UniqueModuleName -BaseRoot $BaseRoot -Candidate $moduleName
 
-    $moduleDir = Join-Path $BaseRoot (Join-Path "specs" $moduleName)
-    New-Item -ItemType Directory -Path $moduleDir -Force | Out-Null
+        $moduleDir = Join-Path $BaseRoot (Join-Path "specs" $moduleName)
+        New-Item -ItemType Directory -Path $moduleDir -Force | Out-Null
 
-    $specPath = Join-Path $moduleDir "spec.md"
-    $designPath = Join-Path $moduleDir "design.md"
-    $tasksPath = Join-Path $moduleDir "tasks.md"
+        $specPath = Join-Path $moduleDir "spec.md"
+        $designPath = Join-Path $moduleDir "design.md"
+        $tasksPath = Join-Path $moduleDir "tasks.md"
 
-    $spec = @"
+        $spec = @"
 # Spec - $moduleName
 
 ## Title
-$InputTitle
+$safeTitle
 
 ## Background
-- $InputRequirement
+- $safeRequirement
 
 ## Scope
 - In scope:
@@ -68,7 +74,7 @@ $InputTitle
 - [ ] tasks.md 中任务可执行且可勾选验收
 "@
 
-    $design = @"
+        $design = @"
 # Design - $moduleName
 
 ## Approach
@@ -77,7 +83,7 @@ $InputTitle
 
 ## Data / API
 - Inputs:
-  - 用户需求：$InputRequirement
+  - 用户需求：$safeRequirement
 - Outputs:
   - 可验证的功能行为 + 更新后的 specs/tasks
 - Constraints:
@@ -89,8 +95,7 @@ $InputTitle
 3. 按验收标准自测
 "@
 
-    # Docs-generated note is PLAIN TEXT (not [x]) so status stays initialized until real work is checked
-    $tasks = @"
+        $tasks = @"
 # Tasks - $moduleName
 
 > Docs generated at $createdAt (not a checklist item).
@@ -108,25 +113,25 @@ $InputTitle
 - [ ] (none)
 "@
 
-    Write-Utf8NoBomFile -Path $specPath -Content $spec
-    Write-Utf8NoBomFile -Path $designPath -Content $design
-    Write-Utf8NoBomFile -Path $tasksPath -Content $tasks
+        Write-Utf8NoBomFile -Path $specPath -Content $spec
+        Write-Utf8NoBomFile -Path $designPath -Content $design
+        Write-Utf8NoBomFile -Path $tasksPath -Content $tasks
 
-    $progress = Get-TasksProgressSummary -TasksPath $tasksPath
-    $fields = New-AIWorkspaceCacheSchema `
-        -ModuleName $moduleName `
-        -Title $InputTitle `
-        -Requirement $InputRequirement `
-        -Priority $InputPriority `
-        -Status "initialized" `
-        -OpenTodoCount $progress.Todo `
-        -DoneCount $progress.Done `
-        -CreatedAt $createdAt
-    $cacheFile = Write-ModuleCacheJson -BundleRoot $BaseRoot -ModuleName $moduleName -Fields $fields
+        $progress = Get-TasksProgressSummary -TasksPath $tasksPath
+        $fields = New-AIWorkspaceCacheSchema `
+            -ModuleName $moduleName `
+            -Title $safeTitle `
+            -Requirement $safeRequirement `
+            -Priority $InputPriority `
+            -Status "initialized" `
+            -OpenTodoCount $progress.Todo `
+            -DoneCount $progress.Done `
+            -CreatedAt $createdAt
+        $cacheFile = Write-ModuleCacheJson -BundleRoot $BaseRoot -ModuleName $moduleName -Fields $fields
 
-    Write-Host "Module ready: $moduleName"
-    Write-Host "Specs:        $moduleDir"
-    Write-Host "Cache:        $cacheFile"
+        Write-Host "Module ready: $moduleName"
+        Write-Host "Specs:        $moduleDir"
+        Write-Host "Cache:        $cacheFile"
     }
 }
 
@@ -145,7 +150,12 @@ function Parse-BatchItems {
     foreach ($rawLine in $lines) {
         $lineNo++
         $line = $rawLine.Trim()
-        if ([string]::IsNullOrWhiteSpace($line) -or $line.StartsWith("#")) {
+        if ([string]::IsNullOrWhiteSpace($line)) {
+            continue
+        }
+        # Comments: "#" alone, or "# " / "#<whitespace>..." (hash + space).
+        # Data titles that start with # must NOT put a space after #: e.g. #tag|req|P1
+        if (($line -eq "#") -or ($line -match '^#\s')) {
             continue
         }
 
@@ -189,30 +199,99 @@ function Parse-BatchItems {
 
 if (-not [string]::IsNullOrWhiteSpace($BatchFile)) {
     if (-not [string]::IsNullOrWhiteSpace($Title) -or -not [string]::IsNullOrWhiteSpace($Requirement)) {
-        Write-Host "WARN: -Title/-Requirement ignored when -BatchFile is set."
+        Write-AIWorkspaceWarn "-Title/-Requirement ignored when -BatchFile is set."
     }
     if (-not [System.IO.Path]::IsPathRooted($BatchFile)) {
         $rel = ($BatchFile.Trim() -replace '^[/\\]+', '') -replace '^\.[/\\]+', ''
         $BatchFile = Join-Path $repoRoot $rel
     }
 
-    $batchItems = Parse-BatchItems -Path $BatchFile
+    $batchItems = @(Parse-BatchItems -Path $BatchFile)
     if ($batchItems.Count -eq 0) {
         throw "Batch file has no valid items."
     }
 
-    Write-Host "Processing batch items: $($batchItems.Count)"
-    foreach ($item in $batchItems) {
-        New-RequirementModule -InputTitle $item.Title -InputRequirement $item.Requirement -InputPriority $item.Priority -BaseRoot $WorkspaceBundle
+    $batchHash = (Get-FileHash -LiteralPath $BatchFile -Algorithm SHA256).Hash.ToLowerInvariant()
+    $startIndex = 0
+    $completed = @()
+    if ($ResumeBatch) {
+        $st = Read-AIWorkspaceBatchState -BundleRoot $WorkspaceBundle
+        if ($st -and $st.batch_hash -eq $batchHash) {
+            $startIndex = [int]$st.next_index
+            $completed = @($st.completed)
+            Write-AIWorkspaceInfo "Resuming batch at index $startIndex / $($batchItems.Count)"
+        }
+        else {
+            Write-AIWorkspaceWarn "No matching batch state for -ResumeBatch; starting from beginning."
+        }
     }
+
+    Write-Host "Processing batch items: $($batchItems.Count) (from index $startIndex)"
+    $created = @()
+    for ($i = $startIndex; $i -lt $batchItems.Count; $i++) {
+        $item = $batchItems[$i]
+        try {
+            New-RequirementModule -InputTitle $item.Title -InputRequirement $item.Requirement -InputPriority $item.Priority -BaseRoot $WorkspaceBundle
+            $completed += $item.Title
+            $created += $item.Title
+            Write-AIWorkspaceBatchState -BundleRoot $WorkspaceBundle -State ([ordered]@{
+                    schema_version = 1
+                    batch_file     = $BatchFile
+                    batch_hash     = $batchHash
+                    next_index     = ($i + 1)
+                    completed      = $completed
+                    updated_at     = (Get-Date).ToString("o")
+                })
+        }
+        catch {
+            Write-AIWorkspaceBatchState -BundleRoot $WorkspaceBundle -State ([ordered]@{
+                    schema_version = 1
+                    batch_file     = $BatchFile
+                    batch_hash     = $batchHash
+                    next_index     = $i
+                    completed      = $completed
+                    last_error     = $_.Exception.Message
+                    updated_at     = (Get-Date).ToString("o")
+                })
+            Write-AIWorkspaceWarn "Batch stopped at index $i ($($item.Title)): $($_.Exception.Message)"
+            Write-AIWorkspaceWarn "Re-run with -ResumeBatch -BatchFile `"$BatchFile`" to continue."
+            if ($Json) {
+                Write-AIWorkspaceJson ([ordered]@{
+                        ok         = $false
+                        next_index = $i
+                        completed  = $completed
+                        error      = $_.Exception.Message
+                    })
+            }
+            exit (Get-AIWorkspaceExitCode -Kind Fail)
+        }
+    }
+    Write-AIWorkspaceBatchState -BundleRoot $WorkspaceBundle -State ([ordered]@{
+            schema_version = 1
+            batch_file     = $BatchFile
+            batch_hash     = $batchHash
+            next_index     = $batchItems.Count
+            completed      = $completed
+            done           = $true
+            updated_at     = (Get-Date).ToString("o")
+        })
     Write-Host "Batch mode completed."
-    exit 0
+    if ($Json) {
+        Write-AIWorkspaceJson ([ordered]@{ ok = $true; created = $created; completed = $completed })
+    }
+    exit (Get-AIWorkspaceExitCode -Kind Ok)
 }
 
 if ([string]::IsNullOrWhiteSpace($Title)) {
+    if (Test-AIWorkspaceNonInteractive) {
+        throw "Title is required in non-interactive mode (pass -Title or -BatchFile)."
+    }
     $Title = Read-Host "Input requirement title"
 }
 if ([string]::IsNullOrWhiteSpace($Requirement)) {
+    if (Test-AIWorkspaceNonInteractive) {
+        throw "Requirement is required in non-interactive mode (pass -Requirement or -BatchFile)."
+    }
     $Requirement = Read-Host "Input requirement detail"
 }
 if ([string]::IsNullOrWhiteSpace($Title) -or [string]::IsNullOrWhiteSpace($Requirement)) {
