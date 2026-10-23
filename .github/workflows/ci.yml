@@ -22,8 +22,9 @@ jobs:
       - name: Install Pester 5
         shell: pwsh
         run: |
+          Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -ErrorAction SilentlyContinue
           Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
-          Install-Module Pester -MinimumVersion 5.5.0 -Force -SkipPublisherCheck -Scope CurrentUser
+          Install-Module Pester -MinimumVersion 5.5.0 -Force -SkipPublisherCheck -Scope CurrentUser -Confirm:$false
 
       - name: Pester unit tests
         shell: pwsh
