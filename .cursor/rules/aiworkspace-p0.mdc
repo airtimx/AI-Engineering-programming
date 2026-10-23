@@ -1,0 +1,11 @@
+---
+description: 轻量指针：AI Workspace 落盘与脚本见 Cursor Skill aiworkspace-manager（为节省 token，细则不在此重复）
+globs: "**/*"
+alwaysApply: false
+---
+
+# AI Workspace（指针）
+
+- **Cursor Skill**：`.cursor/skills/aiworkspace-manager/SKILL.md`（对话中 `@aiworkspace-manager` 或命中描述时加载）
+- **执行**：须用终端跑 `skills/init-workspace.ps1` 等，不得假装已建目录
+- **完整规则**：`skills/aiworkspace-manager.skill.md` 或 `.cursor/skills/aiworkspace-manager/reference.md`
