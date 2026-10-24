@@ -6,6 +6,6 @@ alwaysApply: false
 
 # AI Workspace（指针）
 
-- **Cursor Skill**：`.cursor/skills/aiworkspace-manager/SKILL.md`（对话中 `@aiworkspace-manager` 或命中描述时加载）
+- **Cursor / Trae Skill**：`aiworkspace-manager`（`@aiworkspace-manager`）；Trae 全局目录 `%USERPROFILE%\.trae-cn\skills\`（`-IDE Trae`）
 - **执行**：须用终端跑 `skills/init-workspace.ps1` 等，不得假装已建目录
 - **完整规则**：`skills/aiworkspace-manager.skill.md` 或 `.cursor/skills/aiworkspace-manager/reference.md`

@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
 Run PSScriptAnalyzer on skills/*.ps1 (local static gate).
 #>

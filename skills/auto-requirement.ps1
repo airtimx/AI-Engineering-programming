@@ -79,7 +79,7 @@ $safeTitle
 
 ## Approach
 - 以 spec.md 的范围为准，先交付可运行的最小方案，再按反馈迭代。
-- 优先复用本仓库 ``codestatrFirst`` 约定。
+- 优先复用本仓库工作区捆（``workspace`` / 兼容 ``codestatrFirst``）约定。
 
 ## Data / API
 - Inputs:
@@ -87,7 +87,7 @@ $safeTitle
 - Outputs:
   - 可验证的功能行为 + 更新后的 specs/tasks
 - Constraints:
-  - 不破坏 ``codestatrFirst`` 结构；落盘 UTF-8 无 BOM
+  - 不破坏工作区捆结构；落盘 UTF-8 无 BOM
 
 ## Flow
 1. 确认边界与验收标准
@@ -118,6 +118,7 @@ $safeTitle
         Write-Utf8NoBomFile -Path $tasksPath -Content $tasks
 
         $progress = Get-TasksProgressSummary -TasksPath $tasksPath
+        $bundleLeaf = Split-Path -Leaf $BaseRoot
         $fields = New-AIWorkspaceCacheSchema `
             -ModuleName $moduleName `
             -Title $safeTitle `
@@ -126,7 +127,8 @@ $safeTitle
             -Status "initialized" `
             -OpenTodoCount $progress.Todo `
             -DoneCount $progress.Done `
-            -CreatedAt $createdAt
+            -CreatedAt $createdAt `
+            -BundleDirName $bundleLeaf
         $cacheFile = Write-ModuleCacheJson -BundleRoot $BaseRoot -ModuleName $moduleName -Fields $fields
 
         Write-Host "Module ready: $moduleName"
@@ -153,9 +155,9 @@ function Parse-BatchItems {
         if ([string]::IsNullOrWhiteSpace($line)) {
             continue
         }
-        # Comments: "#" alone, or "# " / "#<whitespace>..." (hash + space).
-        # Data titles that start with # must NOT put a space after #: e.g. #tag|req|P1
-        if (($line -eq "#") -or ($line -match '^#\s')) {
+        # Comments: any line starting with # (including formerly ambiguous #title|req).
+        # Data lines: title|requirement|priority(optional) — see requirements.batch.example.txt
+        if ($line.StartsWith("#")) {
             continue
         }
 

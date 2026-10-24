@@ -1,0 +1,12 @@
+---
+description: 轻量指针：AI Workspace 落盘与脚本见 Skill aiworkspace-manager（为节省 token，细则不在此重复）
+globs: "**/*"
+alwaysApply: false
+---
+
+# AI Workspace（指针）
+
+- **Trae / Cursor Skill**：`aiworkspace-manager`（`@aiworkspace-manager`）
+- **全局路径**：`install-global-skill.ps1 -IDE All` → Cursor `\.cursor\skills\` + Trae `\.trae-cn\skills\`
+- **执行**：须用终端跑 `./skills/aiws.ps1`（或底层脚本），不得假装已建目录
+- **完整规则**：`skills/aiworkspace-manager.skill.md` 或 `.cursor/skills/aiworkspace-manager/reference.md`

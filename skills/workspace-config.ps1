@@ -6,13 +6,16 @@
 if (-not (Get-Variable -Name IsLinux -Scope Global -ErrorAction SilentlyContinue)) { Set-Variable -Name IsLinux -Scope Global -Value $false }
 if (-not (Get-Variable -Name IsMacOS -Scope Global -ErrorAction SilentlyContinue)) { Set-Variable -Name IsMacOS -Scope Global -Value $false }
 Set-StrictMode -Version Latest
+# Preferred bundle folder for new projects; legacy "codestatrFirst" still resolved if present.
+$script:AIWorkspaceBundleDirPreferred = "workspace"
+$script:AIWorkspaceBundleDirLegacyNames = @("codestatrFirst")
 $script:AIWorkspaceBundleDirName = if (-not [string]::IsNullOrWhiteSpace($env:AIWORKSPACE_BUNDLE_DIR)) {
     $env:AIWORKSPACE_BUNDLE_DIR.Trim()
 }
 else {
-    "codestatrFirst"
+    $script:AIWorkspaceBundleDirPreferred
 }
-$script:AIWorkspaceToolkitVersion = "1.4.0"
+$script:AIWorkspaceToolkitVersion = "1.5.1"
 $script:AIWorkspaceStatusEnum = @("initialized", "in_progress", "done", "unknown")
 $script:AIWorkspaceExitOk = 0
 $script:AIWorkspaceExitFail = 1
@@ -21,8 +24,45 @@ $script:AIWorkspaceExitLock = 3
 $script:AIWorkspaceExitManifest = 4
 $script:AIWorkspaceHeldLocks = New-Object 'System.Collections.Generic.HashSet[string]'
 
+function Get-AIWorkspacePreferredBundleDirName {
+    if (-not [string]::IsNullOrWhiteSpace($env:AIWORKSPACE_BUNDLE_DIR)) {
+        return $env:AIWORKSPACE_BUNDLE_DIR.Trim()
+    }
+    return $script:AIWorkspaceBundleDirPreferred
+}
+
 function Get-AIWorkspaceBundleDirName {
-    return $script:AIWorkspaceBundleDirName
+    # Preferred / env name (for templates). Prefer Resolve-AIWorkspaceBundleDirName when a repo root is known.
+    return (Get-AIWorkspacePreferredBundleDirName)
+}
+
+function Resolve-AIWorkspaceBundleDirName {
+    param([Parameter(Mandatory = $true)][string]$RepositoryRoot)
+    if (-not [string]::IsNullOrWhiteSpace($env:AIWORKSPACE_BUNDLE_DIR)) {
+        return $env:AIWORKSPACE_BUNDLE_DIR.Trim()
+    }
+    $preferred = $script:AIWorkspaceBundleDirPreferred
+    if (Test-Path -LiteralPath (Join-Path $RepositoryRoot $preferred)) {
+        return $preferred
+    }
+    foreach ($legacy in $script:AIWorkspaceBundleDirLegacyNames) {
+        if (Test-Path -LiteralPath (Join-Path $RepositoryRoot $legacy)) {
+            return $legacy
+        }
+    }
+    return $preferred
+}
+
+function Test-AIWorkspaceHasBundle {
+    param([Parameter(Mandatory = $true)][string]$FullPath)
+    if (Test-Path -LiteralPath (Join-Path $FullPath (Get-AIWorkspacePreferredBundleDirName))) { return $true }
+    foreach ($legacy in $script:AIWorkspaceBundleDirLegacyNames) {
+        if (Test-Path -LiteralPath (Join-Path $FullPath $legacy)) { return $true }
+    }
+    if (-not [string]::IsNullOrWhiteSpace($env:AIWORKSPACE_BUNDLE_DIR)) {
+        if (Test-Path -LiteralPath (Join-Path $FullPath $env:AIWORKSPACE_BUNDLE_DIR.Trim())) { return $true }
+    }
+    return $false
 }
 
 function Get-AIWorkspaceExitCode {
@@ -84,12 +124,45 @@ function Get-AIWorkspaceHomeDirectory {
     throw "Cannot resolve user home (USERPROFILE/HOME)."
 }
 
+function Resolve-AIWorkspaceIdeName {
+    param([string]$IDE = "Cursor")
+    if ([string]::IsNullOrWhiteSpace($IDE)) { return "Cursor" }
+    $n = $IDE.Trim()
+    if ($n -match '^(?i)trae$') { return "Trae" }
+    if ($n -match '^(?i)cursor$') { return "Cursor" }
+    throw "Unsupported -IDE '$IDE' (use Cursor or Trae)."
+}
+
+function Get-AIWorkspaceIdeSkillsRoot {
+    param(
+        [ValidateSet("Cursor", "Trae")]
+        [string]$IDE = "Cursor"
+    )
+    $ide = Resolve-AIWorkspaceIdeName -IDE $IDE
+    $userHome = Get-AIWorkspaceHomeDirectory
+    switch ($ide) {
+        "Trae" { return (Join-Path $userHome (Join-Path ".trae-cn" "skills")) }
+        default { return (Join-Path $userHome (Join-Path ".cursor" "skills")) }
+    }
+}
+
 function Get-AIWorkspaceCursorSkillsRoot {
-    return (Join-Path (Get-AIWorkspaceHomeDirectory) (Join-Path ".cursor" "skills"))
+    return (Get-AIWorkspaceIdeSkillsRoot -IDE Cursor)
 }
 
 function Get-AIWorkspaceGlobalSkillPath {
-    return (Join-Path (Get-AIWorkspaceCursorSkillsRoot) "aiworkspace-manager")
+    param(
+        [ValidateSet("Cursor", "Trae")]
+        [string]$IDE = "Cursor"
+    )
+    return (Join-Path (Get-AIWorkspaceIdeSkillsRoot -IDE $IDE) "aiworkspace-manager")
+}
+
+function Test-AIWorkspaceIsGlobalToolkitPath {
+    param([string]$ToolkitDir)
+    if ([string]::IsNullOrWhiteSpace($ToolkitDir)) { return $false }
+    return ($ToolkitDir -match '[\\/]\.cursor[\\/]skills[\\/]') -or
+        ($ToolkitDir -match '[\\/]\.trae-cn[\\/]skills[\\/]')
 }
 
 function Get-AIWorkspaceRuntimeInfo {
@@ -145,11 +218,48 @@ function Test-LooksLikeProjectRoot {
     param([string]$FullPath)
 
     if (Test-Path -LiteralPath (Join-Path $FullPath ".git")) { return $true }
-    if (Test-Path -LiteralPath (Join-Path $FullPath $script:AIWorkspaceBundleDirName)) { return $true }
+    if (Test-AIWorkspaceHasBundle -FullPath $FullPath) { return $true }
     $initScript = Join-Path (Join-Path $FullPath "skills") "init-workspace.ps1"
     if (Test-Path -LiteralPath $initScript) { return $true }
+    if (Test-Path -LiteralPath (Join-Path (Join-Path $FullPath "skills") "aiws.ps1")) { return $true }
     if (Test-Path -LiteralPath (Join-Path (Join-Path $FullPath ".cursor") "skills")) { return $true }
+    if (Test-Path -LiteralPath (Join-Path (Join-Path $FullPath ".trae") "rules")) { return $true }
     return $false
+}
+
+function Find-AIWorkspaceProjectRootCandidates {
+    param(
+        [string]$StartPath = "",
+        [int]$MaxDepth = 14
+    )
+    if ([string]::IsNullOrWhiteSpace($StartPath)) {
+        $StartPath = (Get-Location).Path
+    }
+    if (-not (Test-Path -LiteralPath $StartPath)) {
+        return @()
+    }
+    $cur = (Get-Item -LiteralPath $StartPath).FullName
+    $found = New-Object System.Collections.Generic.List[string]
+    for ($i = 0; $i -lt $MaxDepth; $i++) {
+        if (Test-LooksLikeProjectRoot -FullPath $cur) {
+            if (-not $found.Contains($cur)) { $found.Add($cur) | Out-Null }
+        }
+        $parent = Split-Path -Parent $cur
+        if ([string]::IsNullOrWhiteSpace($parent) -or ($parent -eq $cur)) { break }
+        $cur = $parent
+    }
+    return @($found)
+}
+
+function Confirm-AIWorkspaceDetectedRoot {
+    param([Parameter(Mandatory = $true)][string]$Candidate)
+    if (Test-AIWorkspaceNonInteractive) {
+        return $true
+    }
+    Write-Host "Detected project root: $Candidate"
+    $ans = Read-Host "Use this root? (Y/n)"
+    if ([string]::IsNullOrWhiteSpace($ans)) { return $true }
+    return ($ans -match '^[yY]')
 }
 
 function Test-IsEmptyDirectory {
@@ -252,7 +362,7 @@ function Assert-AIWorkspaceRootSafe {
             Write-AIWorkspaceInfo "bootstrap allowed for init (not yet a marked project root): $full"
             return
         }
-        throw "Refusing -Root that does not look like a project: $full`nRequire .git, existing $($script:AIWorkspaceBundleDirName)/, or skills/init-workspace.ps1.`nOr run init-workspace.ps1 (bootstraps new folders), or git init first.`nOverride: AIWORKSPACE_ALLOW_ANY_ROOT=1 (DANGEROUS)"
+        throw "Refusing -Root that does not look like a project: $full`nRequire .git, existing workspace/ (or legacy codestatrFirst/), or skills/aiws.ps1.`nOr run aiws.ps1 init (bootstraps new folders), or git init first.`nOverride: AIWORKSPACE_ALLOW_ANY_ROOT=1 (DANGEROUS)"
     }
 }
 
@@ -260,25 +370,52 @@ function Resolve-AIRepositoryRoot {
     param(
         [string]$Root = ".",
         [string]$ScriptHome = $PSScriptRoot,
-        [switch]$AllowEmptyBootstrap
+        [switch]$AllowEmptyBootstrap,
+        [switch]$SkipDetectConfirm
     )
 
     $candidate = $null
+    $leaf = Split-Path -Leaf $ScriptHome
+    $parent = Split-Path -Parent $ScriptHome
+    $grand = Split-Path -Leaf $parent
+    $isGlobalToolkit = (($leaf -ieq "toolkit") -or ($grand -ieq "aiworkspace-manager")) -and
+        (Test-AIWorkspaceIsGlobalToolkitPath -ToolkitDir $ScriptHome)
+
     if (-not [string]::IsNullOrWhiteSpace($Root) -and ($Root -ne ".")) {
         $candidate = $Root
     }
     elseif (-not [string]::IsNullOrWhiteSpace($env:AIWORKSPACE_PROJECT_ROOT)) {
         $candidate = $env:AIWORKSPACE_PROJECT_ROOT.Trim()
     }
-    else {
-        $parent = Split-Path -Parent $ScriptHome
-        $leaf = Split-Path -Leaf $ScriptHome
-        $grand = Split-Path -Leaf $parent
-        $isGlobalToolkit = ($leaf -ieq "toolkit") -or ($grand -ieq "aiworkspace-manager")
-        if ($isGlobalToolkit -and ($ScriptHome -match '[\\/]\.cursor[\\/]skills[\\/]')) {
-            throw "Global toolkit requires -Root `"<project>`" or AIWORKSPACE_PROJECT_ROOT."
+    elseif ($isGlobalToolkit) {
+        $cands = @(Find-AIWorkspaceProjectRootCandidates -StartPath (Get-Location).Path)
+        if ($cands.Count -eq 1) {
+            if ($SkipDetectConfirm -or (Confirm-AIWorkspaceDetectedRoot -Candidate $cands[0])) {
+                $candidate = $cands[0]
+            }
+            else {
+                throw "Cancelled. Re-run with -Root `"<project>`" or set AIWORKSPACE_PROJECT_ROOT."
+            }
         }
+        elseif ($cands.Count -gt 1) {
+            $list = ($cands | ForEach-Object { "  - $_" }) -join "`n"
+            throw "Ambiguous project roots from current directory:`n$list`nPass -Root `"<project>`" or set AIWORKSPACE_PROJECT_ROOT."
+        }
+        else {
+            throw "Global toolkit: no project root detected from '$((Get-Location).Path)'.`nPass -Root `"<project>`" or set AIWORKSPACE_PROJECT_ROOT.`nFix: pwsh -File `"$ScriptHome\aiws.ps1`" doctor"
+        }
+    }
+    else {
         $candidate = $parent
+        # If skills parent is not a project but cwd is, prefer detected cwd (interactive tools)
+        if (-not (Test-LooksLikeProjectRoot -FullPath $candidate)) {
+            $cands = @(Find-AIWorkspaceProjectRootCandidates -StartPath (Get-Location).Path)
+            if ($cands.Count -eq 1) {
+                if ($SkipDetectConfirm -or (Confirm-AIWorkspaceDetectedRoot -Candidate $cands[0])) {
+                    $candidate = $cands[0]
+                }
+            }
+        }
     }
 
     if (Test-IsUncPath -Path $candidate) {
@@ -299,7 +436,8 @@ function Get-AIWorkspaceBundlePath {
         [Parameter(Mandatory = $true)]
         [string]$RepositoryRoot
     )
-    return Join-Path $RepositoryRoot $script:AIWorkspaceBundleDirName
+    $name = Resolve-AIWorkspaceBundleDirName -RepositoryRoot $RepositoryRoot
+    return (Join-Path $RepositoryRoot $name)
 }
 
 function Ensure-AIWorkspaceLockDir {
@@ -406,6 +544,158 @@ function Write-Utf8NoBomFile {
     [System.IO.File]::WriteAllText($Path, $Content, $utf8)
 }
 
+function Write-Utf8BomFile {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][AllowEmptyString()][string]$Content
+    )
+    $dir = Split-Path -Parent $Path
+    if (-not [string]::IsNullOrWhiteSpace($dir) -and -not (Test-Path -LiteralPath $dir)) {
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+    }
+    $utf8Bom = New-Object System.Text.UTF8Encoding $true
+    [System.IO.File]::WriteAllText($Path, $Content, $utf8Bom)
+}
+
+function Test-AIWorkspaceFileHasUtf8Bom {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    if (-not (Test-Path -LiteralPath $Path)) { return $false }
+    $bytes = [System.IO.File]::ReadAllBytes($Path)
+    return ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF)
+}
+
+function Copy-AIWorkspaceScriptWithBom {
+    <#
+    .SYNOPSIS
+    Copy a .ps1 (or any text) ensuring UTF-8 BOM so Windows PowerShell 5.1 can parse non-ASCII.
+    #>
+    param(
+        [Parameter(Mandatory = $true)][string]$SourcePath,
+        [Parameter(Mandatory = $true)][string]$DestinationPath
+    )
+    if (-not (Test-Path -LiteralPath $SourcePath)) {
+        throw "Source missing: $SourcePath"
+    }
+    $ext = [System.IO.Path]::GetExtension($SourcePath)
+    if ($ext -ieq ".ps1") {
+        $text = [System.IO.File]::ReadAllText($SourcePath, [System.Text.Encoding]::UTF8)
+        Write-Utf8BomFile -Path $DestinationPath -Content $text
+    }
+    else {
+        $destDir = Split-Path -Parent $DestinationPath
+        if (-not [string]::IsNullOrWhiteSpace($destDir) -and -not (Test-Path -LiteralPath $destDir)) {
+            New-Item -ItemType Directory -Path $destDir -Force | Out-Null
+        }
+        Copy-Item -Path $SourcePath -Destination $DestinationPath -Force
+    }
+}
+
+function Get-AIWorkspaceDefaultOwner {
+    if (-not [string]::IsNullOrWhiteSpace($env:AIWORKSPACE_OWNER)) {
+        return $env:AIWORKSPACE_OWNER.Trim()
+    }
+    if (-not [string]::IsNullOrWhiteSpace($env:USERNAME)) {
+        return $env:USERNAME.Trim()
+    }
+    if (-not [string]::IsNullOrWhiteSpace($env:USER)) {
+        return $env:USER.Trim()
+    }
+    return ""
+}
+
+function Get-AIWorkspaceModuleOwner {
+    param(
+        [Parameter(Mandatory = $true)][string]$BundleRoot,
+        [Parameter(Mandatory = $true)][string]$ModuleName
+    )
+    $cachePath = Join-Path (Join-Path $BundleRoot "cache") "$ModuleName.json"
+    if (-not (Test-Path -LiteralPath $cachePath)) { return "" }
+    $read = Read-ModuleCacheJson -CachePath $cachePath
+    if (-not $read.Ok) { return "" }
+    $p = $read.Object.PSObject.Properties["owner"]
+    if ($null -eq $p -or $null -eq $p.Value) { return "" }
+    return ([string]$p.Value).Trim()
+}
+
+function Set-AIWorkspaceModuleOwner {
+    param(
+        [Parameter(Mandatory = $true)][string]$BundleRoot,
+        [Parameter(Mandatory = $true)][string]$ModuleName,
+        [string]$Owner = "",
+        [switch]$Force,
+        [switch]$Clear
+    )
+    $specsDir = Join-Path $BundleRoot "specs"
+    $modDir = Join-Path $specsDir $ModuleName
+    if (-not (Test-Path -LiteralPath $modDir)) {
+        throw "Module not found: $ModuleName under $specsDir"
+    }
+    $cachePath = Join-Path (Join-Path $BundleRoot "cache") "$ModuleName.json"
+    $title = $ModuleName
+    $requirement = ""
+    $priority = "P2"
+    $status = "initialized"
+    $createdAt = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+    $todo = 0
+    $done = 0
+    $existingOwner = ""
+    if (Test-Path -LiteralPath $cachePath) {
+        $read = Read-ModuleCacheJson -CachePath $cachePath
+        if ($read.Ok) {
+            $obj = $read.Object
+            $p = $obj.PSObject.Properties["title"]; if ($null -ne $p -and $null -ne $p.Value) { $title = [string]$p.Value }
+            $p = $obj.PSObject.Properties["requirement"]; if ($null -ne $p -and $null -ne $p.Value) { $requirement = [string]$p.Value }
+            $p = $obj.PSObject.Properties["priority"]; if ($null -ne $p -and $null -ne $p.Value -and $p.Value -in @("P0", "P1", "P2", "P3")) { $priority = [string]$p.Value }
+            $p = $obj.PSObject.Properties["status"]; if ($null -ne $p -and $null -ne $p.Value) { $status = [string]$p.Value }
+            $p = $obj.PSObject.Properties["created_at"]; if ($null -ne $p -and $null -ne $p.Value) { $createdAt = [string]$p.Value }
+            $p = $obj.PSObject.Properties["open_todo_count"]; if ($null -ne $p -and $null -ne $p.Value) { $todo = [int]$p.Value }
+            $p = $obj.PSObject.Properties["done_count"]; if ($null -ne $p -and $null -ne $p.Value) { $done = [int]$p.Value }
+            $p = $obj.PSObject.Properties["owner"]; if ($null -ne $p -and $null -ne $p.Value) { $existingOwner = [string]$p.Value }
+        }
+    }
+    $tasksPath = Join-Path $modDir "tasks.md"
+    if (Test-Path -LiteralPath $tasksPath) {
+        $progress = Get-TasksProgressSummary -TasksPath $tasksPath
+        $todo = $progress.Todo
+        $done = $progress.Done
+        $status = Get-DerivedModuleStatus -Todo $todo -Done $done
+    }
+    $bundleLeaf = Split-Path -Leaf $BundleRoot
+    $newOwner = ""
+    if (-not $Clear) {
+        if ([string]::IsNullOrWhiteSpace($Owner)) { $Owner = Get-AIWorkspaceDefaultOwner }
+        if ([string]::IsNullOrWhiteSpace($Owner)) { throw "Owner required (-Owner or AIWORKSPACE_OWNER / USERNAME)." }
+        $newOwner = $Owner.Trim()
+        if (-not [string]::IsNullOrWhiteSpace($existingOwner) -and ($existingOwner -ne $newOwner) -and -not $Force) {
+            throw "Module '$ModuleName' claimed by '$existingOwner'. Use -Force to take over, or: aiws.ps1 release -Module $ModuleName"
+        }
+    }
+    # Empty Owner omits owner key (release); non-empty claims
+    $fields = New-AIWorkspaceCacheSchema `
+        -ModuleName $ModuleName `
+        -Title $title `
+        -Requirement $requirement `
+        -Priority $priority `
+        -Status $status `
+        -OpenTodoCount $todo `
+        -DoneCount $done `
+        -CreatedAt $createdAt `
+        -Owner $newOwner `
+        -BundleDirName $bundleLeaf
+    return (Write-ModuleCacheJson -BundleRoot $BundleRoot -ModuleName $ModuleName -Fields $fields)
+}
+
+function Test-AIWorkspaceOwnerConflict {
+    param(
+        [string]$ModuleOwner,
+        [string]$Me = ""
+    )
+    if ([string]::IsNullOrWhiteSpace($ModuleOwner)) { return $false }
+    if ([string]::IsNullOrWhiteSpace($Me)) { $Me = Get-AIWorkspaceDefaultOwner }
+    if ([string]::IsNullOrWhiteSpace($Me)) { return $false }
+    return ($ModuleOwner.Trim() -ne $Me.Trim())
+}
+
 function Test-ValidUtf8Bytes {
     param([byte[]]$Bytes)
     try {
@@ -502,14 +792,24 @@ function New-AIWorkspaceCacheSchema {
         [ValidateSet("initialized", "in_progress", "done", "unknown")][string]$Status = "initialized",
         [int]$OpenTodoCount = 0,
         [int]$DoneCount = 0,
-        [string]$CreatedAt = ""
+        [string]$CreatedAt = "",
+        [string]$Owner = "",
+        [string]$BundleDirName = ""
     )
 
-    $bundleName = Get-AIWorkspaceBundleDirName
+    $bundleName = if (-not [string]::IsNullOrWhiteSpace($BundleDirName)) {
+        $BundleDirName
+    }
+    else {
+        Get-AIWorkspacePreferredBundleDirName
+    }
     if ([string]::IsNullOrWhiteSpace($CreatedAt)) {
         $CreatedAt = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
     }
-    return [ordered]@{
+    if ([string]::IsNullOrWhiteSpace($Owner) -and -not [string]::IsNullOrWhiteSpace($env:AIWORKSPACE_OWNER)) {
+        $Owner = $env:AIWORKSPACE_OWNER.Trim()
+    }
+    $schema = [ordered]@{
         schema_version  = 1
         module          = $ModuleName
         title           = $Title
@@ -527,6 +827,51 @@ function New-AIWorkspaceCacheSchema {
             "$bundleName/specs/$ModuleName/tasks.md"
         )
     }
+    if (-not [string]::IsNullOrWhiteSpace($Owner)) {
+        $schema["owner"] = $Owner
+    }
+    return $schema
+}
+
+function Test-AIWorkspaceBatchFile {
+    <#
+    .SYNOPSIS
+    Validate batch file: lines starting with # are comments; data is title|requirement|priority?
+    #>
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [switch]$StrictThrow
+    )
+    if (-not (Test-Path -LiteralPath $Path)) {
+        $msg = "Batch file not found: $Path"
+        if ($StrictThrow) { throw $msg }
+        return [pscustomobject]@{ Ok = $false; Errors = @($msg); Items = 0 }
+    }
+    $raw = Read-Utf8File -Path $Path
+    $errors = New-Object System.Collections.Generic.List[string]
+    $items = 0
+    $lineNo = 0
+    foreach ($rawLine in ($raw -split "`r?`n")) {
+        $lineNo++
+        $line = $rawLine.Trim()
+        if ([string]::IsNullOrWhiteSpace($line)) { continue }
+        if ($line.StartsWith("#")) { continue }
+        $parts = $line.Split([char]('|'))
+        if ($parts.Count -lt 2) {
+            $errors.Add("line ${lineNo}: expected title|requirement|priority(optional)") | Out-Null
+            continue
+        }
+        if ([string]::IsNullOrWhiteSpace($parts[0]) -or [string]::IsNullOrWhiteSpace($parts[1])) {
+            $errors.Add("line ${lineNo}: empty title or requirement") | Out-Null
+            continue
+        }
+        $items++
+    }
+    $ok = ($errors.Count -eq 0)
+    if (-not $ok -and $StrictThrow) {
+        throw ("Batch validation failed:`n - " + ($errors -join "`n - "))
+    }
+    return [pscustomobject]@{ Ok = $ok; Errors = @($errors); Items = $items }
 }
 
 function Write-ModuleCacheJson {
@@ -728,8 +1073,8 @@ function Assert-AIWorkspaceToolkitReady {
     Write-Host "Runtime: PS $($rt.PSVersion) ($($rt.Edition)) on $($rt.OS) | toolkit $($rt.Toolkit)"
     $manifestPath = Join-Path $ToolkitDir "manifest.json"
     if (-not (Test-Path -LiteralPath $manifestPath)) { return }
-    # Global toolkit (~/.cursor/skills/.../toolkit): hard-fail on drift unless AIWORKSPACE_STRICT_MANIFEST=0
-    $isGlobal = ($ToolkitDir -match '[\\/]\.cursor[\\/]skills[\\/]')
+    # Global toolkit (~/.cursor or ~/.trae-cn skills/.../toolkit): hard-fail on drift unless AIWORKSPACE_STRICT_MANIFEST=0
+    $isGlobal = Test-AIWorkspaceIsGlobalToolkitPath -ToolkitDir $ToolkitDir
     $forceSoft = ($env:AIWORKSPACE_STRICT_MANIFEST -eq "0")
     $forceHard = ($env:AIWORKSPACE_STRICT_MANIFEST -eq "1")
     if (($isGlobal -or $forceHard) -and -not $forceSoft) {

@@ -72,10 +72,10 @@ Describe "Test-AIWorkspaceManifest -Strict" {
     It "throws when hash drifts" {
         $dir = Join-Path $TestDrive "tk"
         New-Item -ItemType Directory -Path $dir | Out-Null
-        Set-Content -Path (Join-Path $dir "VERSION") -Value "1.4.0" -Encoding utf8
+        Set-Content -Path (Join-Path $dir "VERSION") -Value "1.5.1" -Encoding utf8
         Set-Content -Path (Join-Path $dir "a.ps1") -Value "hi" -Encoding utf8
         $man = @{
-            version = "1.4.0"
+            version = "1.5.1"
             files   = @(@{ name = "a.ps1"; sha256 = "00"; bytes = 2 }, @{ name = "VERSION"; sha256 = "00"; bytes = 1 })
         } | ConvertTo-Json -Depth 5
         Set-Content -Path (Join-Path $dir "manifest.json") -Value $man -Encoding utf8
@@ -110,7 +110,7 @@ Describe "Path safety" {
 Describe "Runtime info" {
     It "returns toolkit version" {
         $r = Get-AIWorkspaceRuntimeInfo
-        $r.Toolkit | Should -Be "1.4.0"
+        $r.Toolkit | Should -Be "1.5.1"
         $r.PSVersion | Should -Not -BeNullOrEmpty
     }
 }

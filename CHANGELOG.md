@@ -2,6 +2,41 @@
 
 All notable changes to AI Workspace Manager (toolkit) are documented here.
 
+## [1.5.1] - 2026-10-24
+
+### Fixed / hardened
+- **UTF-8 BOM**: all `skills/*.ps1` must have BOM (PS 5.1); installer `Copy-AIWorkspaceScriptWithBom` always rewrites `.ps1` with BOM; validate asserts BOM.
+- Collaboration: `claim-module.ps1` + `aiws claim|release|who`; resume warns on owner conflict.
+- `-SuggestCommit` prints PR title/body skeleton (still does not auto commit/PR).
+- `REMOTE.md` — how to attach GitHub/Origin remote for CI (no gh/Origin on some machines).
+
+### Changed
+- Version **1.5.1**.
+
+## [1.5.0] - 2026-10-24
+
+### Added
+- Unified CLI: `skills/aiws.ps1` (`init|new|resume|status|install|uninstall|doctor`).
+- `doctor-workspace.ps1` with copy-paste fix commands; dual-IDE version skew check.
+- Preferred bundle dir **`workspace/`** (legacy **`codestatrFirst/`** still resolved).
+- `install-global-skill.ps1` / `uninstall-global-skill.ps1` with `-IDE All|Cursor|Trae`.
+- Resume: human「下一步」、Agent 提示词、模块仪表盘、`-SuggestCommit`；cache optional `owner`.
+- `requirements.batch.example.txt`; batch lines starting with `#` are always comments.
+- Root auto-detect from cwd when using global toolkit (interactive confirm).
+- `.gitattributes` + gitignore entries for `workspace/` locks/trash/batch progress.
+
+### Changed
+- Default bundle name for new projects: `workspace` (was `codestatrFirst`).
+- Old install/uninstall script names are deprecated thin wrappers.
+- Version **1.5.0**.
+
+## [1.4.1] - 2026-10-24
+
+### Added
+- Trae support: `.trae/rules/aiworkspace-p0.mdc`.
+- Dual installer: `install-cursor-global-skill.ps1 -IDE Cursor|Trae` (Trae → `%USERPROFILE%\.trae-cn\skills\`); matching `uninstall -IDE`.
+- CI + validate: Trae install toolkit SHA256 must match repo `skills/` (staleness guard).
+
 ## [1.4.0] - 2026-10-24
 
 ### Added

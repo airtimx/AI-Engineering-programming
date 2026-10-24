@@ -23,11 +23,23 @@ Write-Host "=== validate-workspace (toolkit $ver | PS $($rt.PSVersion) $($rt.Edi
 foreach ($f in @(
         "workspace-config.ps1", "init-workspace.ps1", "auto-requirement.ps1",
         "new-module-spec.ps1", "new-bugfix.ps1", "resume-workspace.ps1",
-        "validate-workspace.ps1", "install-cursor-global-skill.ps1",
-        "uninstall-cursor-global-skill.ps1", "run-tests.ps1", "analyze-workspace.ps1", "VERSION"
+        "validate-workspace.ps1", "aiws.ps1", "doctor-workspace.ps1", "claim-module.ps1",
+        "install-global-skill.ps1", "uninstall-global-skill.ps1",
+        "install-cursor-global-skill.ps1", "uninstall-cursor-global-skill.ps1",
+        "run-tests.ps1", "analyze-workspace.ps1", "VERSION", "requirements.batch.example.txt"
     )) {
     Assert-True (Test-Path -LiteralPath (Join-Path $PSScriptRoot $f)) "present: $f"
 }
+
+# PS 5.1 requires UTF-8 BOM on scripts that may contain non-ASCII
+$bomFail = 0
+Get-ChildItem -LiteralPath $PSScriptRoot -Filter "*.ps1" | ForEach-Object {
+    if (-not (Test-AIWorkspaceFileHasUtf8Bom -Path $_.FullName)) {
+        Write-Host "[FAIL] missing UTF-8 BOM: $($_.Name)"
+        $bomFail++
+    }
+}
+Assert-True ($bomFail -eq 0) "all skills/*.ps1 have UTF-8 BOM"
 
 # Markdown injection neutralization
 $inj = Protect-AIWorkspaceMarkdownText -Value "T1`n## Injected" -Mode Inline
@@ -132,8 +144,13 @@ Assert-True ($threw -and $msg -match "does not exist") "missing -Root friendly e
 # Home / global path helpers (cross-platform)
 $homeDir = Get-AIWorkspaceHomeDirectory
 Assert-True (-not [string]::IsNullOrWhiteSpace($homeDir)) "home directory resolved"
-$gSkill = Get-AIWorkspaceGlobalSkillPath
-Assert-True ($gSkill -like "*aiworkspace-manager") "global skill path shape"
+$gSkill = Get-AIWorkspaceGlobalSkillPath -IDE Cursor
+Assert-True ($gSkill -like "*aiworkspace-manager" -and $gSkill -match '[\\/]\.cursor[\\/]skills[\\/]') "global Cursor skill path shape"
+$gTrae = Get-AIWorkspaceGlobalSkillPath -IDE Trae
+Assert-True ($gTrae -like "*aiworkspace-manager" -and $gTrae -match '[\\/]\.trae-cn[\\/]skills[\\/]') "global Trae skill path shape"
+Assert-True (Test-AIWorkspaceIsGlobalToolkitPath -ToolkitDir (Join-Path $gTrae "toolkit")) "Trae toolkit path is global"
+try { Resolve-AIWorkspaceIdeName -IDE "Foo" | Out-Null; Assert-True $false "bad IDE should throw" }
+catch { Assert-True $true "bad IDE throws" }
 
 # File lock: hold exclusive FileStream, second acquire must time out
 $lockBundle = Join-Path ([IO.Path]::GetTempPath()) ("aiws-lock-" + [guid]::NewGuid().ToString("N"))
@@ -274,16 +291,20 @@ try {
 
         $batch = Join-Path $tmpRoot "b.txt"
         Write-Utf8NoBomFile -Path $batch -Content @"
-# this is a comment (hash+space)
-# also comment with | inside because of space after hash
+# this is a comment
+#hash-title|formerly data now comment|P2
 T1|req with | pipe inside|P1
-#hash-title|must keep this|P2
+HashTitle|must create this|P2
 "@
+        $bv = Test-AIWorkspaceBatchFile -Path $batch
+        Assert-True ($bv.Ok -and $bv.Items -eq 2) "batch validate example shape"
         & (Join-Path $PSScriptRoot "auto-requirement.ps1") -Root $tmpRoot -BatchFile $batch
-        $hashMod = Join-Path $bundle (Join-Path "specs" "hash-title")
-        Assert-True (Test-Path -LiteralPath $hashMod) "batch keeps #title|req (no space after #)"
+        $hashMod = Join-Path $bundle (Join-Path "specs" "hashtitle")
+        Assert-True (Test-Path -LiteralPath $hashMod) "batch creates HashTitle (not #hash-title)"
+        $hashCommentMod = Join-Path $bundle (Join-Path "specs" "hash-title")
+        Assert-True (-not (Test-Path -LiteralPath $hashCommentMod)) "batch #line is always comment"
         $falseMod = Join-Path $bundle (Join-Path "specs" "also")
-        Assert-True (-not (Test-Path -LiteralPath $falseMod)) "batch # space line with | is comment"
+        Assert-True (-not (Test-Path -LiteralPath $falseMod)) "batch comment with | ignored"
 
         # Same title twice → uniquify -2 + capturable warning
         $dupWarn = $null
@@ -339,6 +360,114 @@ foreach ($doc in @("CHANGELOG.md", "LICENSE", "RELEASE.md", "README.md")) {
     }
     else {
         Write-Host "[WARN] missing repo doc (ok if validating installed toolkit only): $doc"
+    }
+}
+
+# Trae project rule + installed toolkit hash == repo skills/ (prevent stale Trae copies)
+$traeRule = Join-Path $repoRootGuess (Join-Path ".trae" (Join-Path "rules" "aiworkspace-p0.mdc"))
+if (Test-Path -LiteralPath $traeRule) {
+    Assert-True $true "trae rule: .trae/rules/aiworkspace-p0.mdc"
+    $ruleText = [System.IO.File]::ReadAllText($traeRule)
+    Assert-True ($ruleText -match '(?i)trae-cn' -or $ruleText -match '(?i)-IDE Trae') "trae rule mentions Trae install path"
+}
+else {
+    Write-Host "[WARN] missing .trae/rules/aiworkspace-p0.mdc (ok if validating installed toolkit only)"
+}
+
+$srcGlobalMd = Join-Path $repoRootGuess (Join-Path ".cursor" (Join-Path "skills" (Join-Path "aiworkspace-manager" "SKILL.global.md")))
+if ((Test-Path -LiteralPath $srcGlobalMd) -and -not $SkipWriteTest) {
+    $traeInstall = Join-Path ([IO.Path]::GetTempPath()) ("aiws-trae-inst-" + [guid]::NewGuid().ToString("N"))
+    $traeSkillRoot = Join-Path $traeInstall "aiworkspace-manager"
+    try {
+        & (Join-Path $PSScriptRoot "install-global-skill.ps1") -IDE Trae -SourceRepo $repoRootGuess -SkillRoot $traeSkillRoot
+        $tk = Join-Path $traeSkillRoot "toolkit"
+        Assert-True (Test-Path -LiteralPath (Join-Path $tk "manifest.json")) "Trae install writes manifest"
+        $skillMd = [System.IO.File]::ReadAllText((Join-Path $traeSkillRoot "SKILL.md"))
+        Assert-True ($skillMd -match '(?i)trae-cn') "Trae SKILL.md uses .trae-cn paths"
+        $hashMismatch = 0
+        $compareNames = @(
+            "workspace-config.ps1", "init-workspace.ps1", "auto-requirement.ps1",
+            "new-module-spec.ps1", "new-bugfix.ps1", "resume-workspace.ps1",
+            "validate-workspace.ps1", "aiws.ps1", "doctor-workspace.ps1", "claim-module.ps1",
+            "install-global-skill.ps1", "uninstall-global-skill.ps1",
+            "run-tests.ps1", "analyze-workspace.ps1", "VERSION"
+        )
+        foreach ($n in $compareNames) {
+            $repoFile = Join-Path $PSScriptRoot $n
+            $instFile = Join-Path $tk $n
+            if (-not (Test-Path -LiteralPath $repoFile)) { continue }
+            if (-not (Test-Path -LiteralPath $instFile)) {
+                $hashMismatch++
+                Write-Host "[FAIL] Trae toolkit missing: $n"
+                continue
+            }
+            $h1 = (Get-FileHash -LiteralPath $repoFile -Algorithm SHA256).Hash
+            $h2 = (Get-FileHash -LiteralPath $instFile -Algorithm SHA256).Hash
+            if ($h1 -ne $h2) {
+                $hashMismatch++
+                Write-Host "[FAIL] Trae hash drift: $n"
+            }
+        }
+        Assert-True ($hashMismatch -eq 0) "Trae skill toolkit hashes match repo skills/"
+        & (Join-Path $PSScriptRoot "uninstall-global-skill.ps1") -IDE Trae -Force -SkillRoot $traeSkillRoot
+        Assert-True (-not (Test-Path -LiteralPath $traeSkillRoot)) "Trae uninstall removes skill root"
+
+        # New init prefers workspace/ when no legacy bundle
+        $fresh = Join-Path ([IO.Path]::GetTempPath()) ("aiws-ws-" + [guid]::NewGuid().ToString("N"))
+        New-Item -ItemType Directory -Path $fresh | Out-Null
+        try {
+            & (Join-Path $PSScriptRoot "init-workspace.ps1") -Root $fresh
+            Assert-True (Test-Path -LiteralPath (Join-Path $fresh "workspace")) "new init creates workspace/"
+            Assert-True (-not (Test-Path -LiteralPath (Join-Path $fresh "codestatrFirst"))) "new init does not create legacy name"
+        }
+        finally {
+            Remove-Item -LiteralPath $fresh -Recurse -Force -ErrorAction SilentlyContinue
+        }
+
+        # Claim / release / conflict (own fixture; prior $tmpRoot already cleaned)
+        $claimRoot = Join-Path ([IO.Path]::GetTempPath()) ("aiws-claim-" + [guid]::NewGuid().ToString("N"))
+        New-Item -ItemType Directory -Path $claimRoot | Out-Null
+        New-Item -ItemType Directory -Path (Join-Path $claimRoot ".git") -Force | Out-Null
+        try {
+            & (Join-Path $PSScriptRoot "auto-requirement.ps1") -Root $claimRoot -Title "ClaimMe" -Requirement "own" -Priority P2
+            $claimBundle = Get-AIWorkspaceBundlePath -RepositoryRoot $claimRoot
+            & (Join-Path $PSScriptRoot "claim-module.ps1") claim -Root $claimRoot -Module claimme -Owner alice
+            Assert-True ((Get-AIWorkspaceModuleOwner -BundleRoot $claimBundle -ModuleName "claimme") -eq "alice") "claim sets owner alice"
+            $takeFail = $false
+            try {
+                & (Join-Path $PSScriptRoot "claim-module.ps1") claim -Root $claimRoot -Module claimme -Owner bob | Out-Null
+            }
+            catch {
+                $takeFail = ($_.Exception.Message -match "claimed by")
+            }
+            Assert-True $takeFail "claim conflict without -Force"
+            & (Join-Path $PSScriptRoot "claim-module.ps1") claim -Root $claimRoot -Module claimme -Owner bob -Force
+            Assert-True ((Get-AIWorkspaceModuleOwner -BundleRoot $claimBundle -ModuleName "claimme") -eq "bob") "claim -Force take over"
+            & (Join-Path $PSScriptRoot "claim-module.ps1") release -Root $claimRoot -Module claimme -Owner bob
+            Assert-True ([string]::IsNullOrWhiteSpace((Get-AIWorkspaceModuleOwner -BundleRoot $claimBundle -ModuleName "claimme"))) "release clears owner"
+        }
+        finally {
+            Remove-Item -LiteralPath $claimRoot -Recurse -Force -ErrorAction SilentlyContinue
+        }
+
+        # Installer copies .ps1 with BOM into toolkit
+        $bomInst = Join-Path ([IO.Path]::GetTempPath()) ("aiws-bom-" + [guid]::NewGuid().ToString("N"))
+        $bomSkill = Join-Path $bomInst "aiworkspace-manager"
+        try {
+            & (Join-Path $PSScriptRoot "install-global-skill.ps1") -IDE Cursor -SourceRepo $repoRootGuess -SkillRoot $bomSkill
+            $installedPs1 = Join-Path (Join-Path $bomSkill "toolkit") "workspace-config.ps1"
+            Assert-True (Test-AIWorkspaceFileHasUtf8Bom -Path $installedPs1) "install writes toolkit .ps1 with UTF-8 BOM"
+        }
+        finally {
+            if (Test-Path -LiteralPath $bomInst) {
+                Remove-Item -LiteralPath $bomInst -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        }
+    }
+    finally {
+        if (Test-Path -LiteralPath $traeInstall) {
+            Remove-Item -LiteralPath $traeInstall -Recurse -Force -ErrorAction SilentlyContinue
+        }
     }
 }
 

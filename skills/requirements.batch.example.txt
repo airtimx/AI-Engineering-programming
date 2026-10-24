@@ -1,0 +1,9 @@
+# 批量需求示例（整行以 # 开头 = 注释，不会创建模块）
+# 数据行格式：title|requirement|priority(optional)
+# priority 可选 P0|P1|P2|P3；省略则用命令行 -Priority（默认 P2）
+#
+# 校验：pwsh -File ./skills/aiws.ps1 doctor
+# 运行：./skills/aiws.ps1 new -BatchFile ./skills/requirements.batch.example.txt
+
+用户登录|手机号验证码登录|P1
+个人资料页|展示与编辑昵称头像|P2

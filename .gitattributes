@@ -1,0 +1,8 @@
+# Keep workspace docs/cache text stable across OS checkouts
+workspace/**/*.md text eol=lf
+workspace/**/*.json text eol=lf
+codestatrFirst/**/*.md text eol=lf
+codestatrFirst/**/*.json text eol=lf
+skills/*.ps1 text eol=lf
+skills/*.txt text eol=lf
+*.md text eol=lf

@@ -29,14 +29,19 @@ AIWORKSPACE.local.ps1
 # Local trash from init garbled-doc recovery (keep .gitkeep if present)
 codestatrFirst/.trash/*
 !codestatrFirst/.trash/.gitkeep
+workspace/.trash/*
+!workspace/.trash/.gitkeep
 
 # Runtime file locks (keep .gitkeep)
 codestatrFirst/.locks/*
 !codestatrFirst/.locks/.gitkeep
+workspace/.locks/*
+!workspace/.locks/.gitkeep
 *.lock
 
 # Batch resume cursor (local)
 codestatrFirst/cache/.batch-progress.json
+workspace/cache/.batch-progress.json
 
 # Pester / local
 TestResults.xml

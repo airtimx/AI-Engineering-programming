@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
 Ensure Pester 5+ (side-by-side with Windows built-in 3.4) and run ./tests.
 #>
