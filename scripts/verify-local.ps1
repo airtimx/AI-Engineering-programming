@@ -40,7 +40,7 @@ if (-not $SkipBootstrap) {
 
 if (-not $SkipValidate) {
     Invoke-Step "validate-workspace" {
-        & (Join-Path $repoRoot "skills\validate-workspace.ps1")
+        & (Join-Path $repoRoot "skills\validate-workspace.ps1") -Quiet
     }
 }
 

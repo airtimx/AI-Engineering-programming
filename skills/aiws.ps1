@@ -54,6 +54,10 @@ AI Workspace CLI (aiws.ps1) — 只记这一个入口
   ./skills/aiws.ps1 claim -Module 用户登录
   # 编辑 workspace/specs/<模块>/tasks.md 勾选后:
   ./skills/aiws.ps1 resume -SyncCache -SuggestCommit
+
+退出码契约（入口与 deprecated wrapper 均须遵守）:
+  0 成功 · 1 失败 · 2 用法/歧义 · 3 锁超时 · 4 全局 manifest 漂移
+  成功路径显式 exit 0；转发子进程用 exit `$LASTEXITCODE（勿留残留码）
 "@ | Write-Host
 }
 

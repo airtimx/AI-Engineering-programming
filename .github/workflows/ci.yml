@@ -22,7 +22,7 @@ jobs:
       - name: validate-workspace
         shell: pwsh
         run: |
-          ./skills/validate-workspace.ps1
+          ./skills/validate-workspace.ps1 -Quiet
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Unit tests — Invoke-Pester tests/
@@ -89,7 +89,7 @@ jobs:
       - name: validate-workspace on PowerShell 7
         shell: pwsh
         run: |
-          ./skills/validate-workspace.ps1 -SkipWriteTest
+          ./skills/validate-workspace.ps1 -Quiet -SkipWriteTest
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Unit tests — Invoke-Pester tests/

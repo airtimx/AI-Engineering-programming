@@ -1,6 +1,6 @@
 # AI Skill Workspace
 
-可复用 AI 工作区脚手架（**toolkit v1.5.2**，MIT）。
+可复用 AI 工作区脚手架（**toolkit v1.5.3**，MIT）。
 
 **产品边界**：只做 specs/cache 脚手架与 Skill 安装；**不**自动改业务代码、不自动开 PR（`-SuggestCommit` 仅打印文案）。多人用 `claim`/`release`/`who` 轻量认领，不是完整项目管理。
 
@@ -34,7 +34,11 @@
 
 ```powershell
 ./skills/aiws.ps1 doctor
+./scripts/verify-local.ps1          # 本地一键：Pester 5 + validate + analyzer
+./skills/validate-workspace.ps1 -Quiet   # 安静自检（无沙盒路径刷屏）
 ```
+
+> **`manifest.json`**：由 `install-global-skill.ps1` **安装时**写入 `%USERPROFILE%\.cursor\skills\...\toolkit\`（或 Trae 对应路径），**仓库不提交**该文件。
 
 ---
 
@@ -43,7 +47,7 @@
 - **做**：在 `workspace/`（或兼容旧名 `codestatrFirst/`）生成 specs/cache/bugfix 骨架与续接状态。  
 - **不做**：自动开 PR/Issue、改业务代码（刻意保持薄；可用 `-SuggestCommit` 只打印建议文案）。
 
-**支持矩阵**：Windows PowerShell 5.1、PowerShell 7+（Windows / Linux / macOS）。对话触发依赖 Cursor / Trae Skill；脚本可独立跑。
+**支持矩阵**：Windows PowerShell 5.1（主）、PowerShell 7+ Windows；Linux/macOS 为 CI 冒烟/尽力，非第一方对等支持。对话触发依赖 Cursor / Trae Skill；脚本可独立跑。
 
 ## 统一入口速查
 
@@ -98,9 +102,9 @@
 ```powershell
 ./scripts/verify-local.ps1
 # 或分步：
-./scripts/bootstrap-pester.ps1   # 装 Pester 5.5+（兼容本机自带 3.4）
-./skills/validate-workspace.ps1
-./skills/run-tests.ps1           # Invoke-Pester tests/
+./scripts/bootstrap-pester.ps1          # 装 Pester 5.5+（兼容本机自带 3.4）
+./skills/validate-workspace.ps1 -Quiet  # 推荐 Quiet
+./skills/run-tests.ps1                  # Invoke-Pester tests/
 ./skills/analyze-workspace.ps1
 ```
 

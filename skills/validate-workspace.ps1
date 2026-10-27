@@ -1,10 +1,16 @@
 ﻿<#
 .SYNOPSIS
 Smoke + regression matrix for AI Workspace toolkit. Exit 0 = OK.
+.PARAMETER Quiet
+Only print [OK]/[FAIL]/EXPECT-ERROR lines and final summary (hide sandbox Ready:/Exists: noise).
+.PARAMETER VerboseSandbox
+With -Quiet, still show child-script host output (init/auto/resume paths).
 #>
 param(
     [string]$Root = ".",
-    [switch]$SkipWriteTest
+    [switch]$SkipWriteTest,
+    [switch]$Quiet,
+    [switch]$VerboseSandbox
 )
 
 $ErrorActionPreference = "Stop"
@@ -14,6 +20,35 @@ $failed = 0
 function Assert-True([bool]$Cond, [string]$Msg) {
     if ($Cond) { Write-Host "[OK] $Msg" }
     else { Write-Host "[FAIL] $Msg"; $script:failed++ }
+}
+
+# Quiet: shadow Write-Host so child scripts (init/auto/...) do not spam sandbox paths.
+# Assert-True / EXPECT-ERROR / banner still pass through.
+if ($Quiet -and -not $VerboseSandbox) {
+    function Write-Host {
+        param(
+            [Parameter(Position = 0, ValueFromRemainingArguments = $true)]
+            [object[]]$Object,
+            [ConsoleColor]$ForegroundColor,
+            [ConsoleColor]$BackgroundColor,
+            [switch]$NoNewline
+        )
+        $msg = ""
+        if ($null -ne $Object) {
+            $msg = ($Object | ForEach-Object { "$_" }) -join " "
+        }
+        $keep = ($msg -match '^\[(OK|FAIL|WARN)\]') -or
+            ($msg -match '^EXPECT-ERROR:') -or
+            ($msg -match '^(FAILED:|All checks passed)') -or
+            ($msg -match '^=== validate-workspace')
+        if ($keep) {
+            $splat = @{ Object = $Object }
+            if ($PSBoundParameters.ContainsKey("ForegroundColor")) { $splat["ForegroundColor"] = $ForegroundColor }
+            if ($PSBoundParameters.ContainsKey("BackgroundColor")) { $splat["BackgroundColor"] = $BackgroundColor }
+            if ($NoNewline) { $splat["NoNewline"] = $true }
+            Microsoft.PowerShell.Utility\Write-Host @splat
+        }
+    }
 }
 
 $ver = Get-AIWorkspaceToolkitVersion
@@ -192,11 +227,18 @@ try {
     }
     Write-Utf8NoBomFile -Path (Join-Path $manDir "manifest.json") -Content ($man | ConvertTo-Json -Depth 6)
     $strictThrew = $false
-    try { Test-AIWorkspaceManifest -ToolkitDir $manDir -Strict | Out-Null } catch { $strictThrew = $true }
+    try {
+        # Negative test: use EXPECT-ERROR so readers do not mistake for a real failure
+        Test-AIWorkspaceManifest -ToolkitDir $manDir -Strict -ErrorLabel "EXPECT-ERROR" | Out-Null
+    }
+    catch { $strictThrew = $true }
     Assert-True $strictThrew "manifest Strict fails on hash drift"
 
-    # Fix VERSION entry hash so only soft mode would pass if we fix - actually leave broken
-    $soft = Test-AIWorkspaceManifest -ToolkitDir $manDir
+    # Soft mode: suppress WARN noise from expected drift (still assert false)
+    $prevWarn = $WarningPreference
+    $WarningPreference = "SilentlyContinue"
+    try { $soft = Test-AIWorkspaceManifest -ToolkitDir $manDir }
+    finally { $WarningPreference = $prevWarn }
     Assert-True (-not $soft) "manifest soft returns false on drift"
 }
 finally {

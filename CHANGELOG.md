@@ -2,6 +2,17 @@
 
 All notable changes to AI Workspace Manager (toolkit) are documented here.
 
+## [1.5.3] - 2026-10-27
+
+### Added
+- `validate-workspace.ps1 -Quiet`（可选 `-VerboseSandbox`）：只打 `[OK]/[FAIL]/EXPECT-ERROR` 与汇总。
+- `Test-AIWorkspaceManifest -ErrorLabel`：负例用 `EXPECT-ERROR:`，避免误判。
+
+### Changed
+- Docs: manifest.json 由安装器写入 toolkit（仓库不提交）；跨平台仅冒烟；README 显式 `./scripts/verify-local.ps1`。
+- `aiws.ps1 help` 写明退出码契约。
+- Version **1.5.3**.
+
 ## [1.5.2] - 2026-10-27
 
 ### Added

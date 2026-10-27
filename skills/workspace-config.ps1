@@ -15,7 +15,7 @@ $script:AIWorkspaceBundleDirName = if (-not [string]::IsNullOrWhiteSpace($env:AI
 else {
     $script:AIWorkspaceBundleDirPreferred
 }
-$script:AIWorkspaceToolkitVersion = "1.5.2"
+$script:AIWorkspaceToolkitVersion = "1.5.3"
 $script:AIWorkspaceStatusEnum = @("initialized", "in_progress", "done", "unknown")
 $script:AIWorkspaceExitOk = 0
 $script:AIWorkspaceExitFail = 1
@@ -1017,13 +1017,16 @@ function Ensure-AIWorkspaceGitkeeps {
 function Test-AIWorkspaceManifest {
     param(
         [string]$ToolkitDir = $PSScriptRoot,
-        [switch]$Strict
+        [switch]$Strict,
+        # Use "EXPECT-ERROR" in negative tests so validate output is not mistaken for failure
+        [string]$ErrorLabel = "ERROR"
     )
 
+    if ([string]::IsNullOrWhiteSpace($ErrorLabel)) { $ErrorLabel = "ERROR" }
     $strictMode = $Strict -or ($env:AIWORKSPACE_STRICT_MANIFEST -eq "1")
     $manifestPath = Join-Path $ToolkitDir "manifest.json"
     if (-not (Test-Path -LiteralPath $manifestPath)) {
-        $msg = "manifest.json missing in $ToolkitDir (run install-cursor-global-skill.ps1)"
+        $msg = "manifest.json missing in $ToolkitDir (run install-global-skill.ps1)"
         if ($strictMode) { throw $msg }
         Write-AIWorkspaceWarn $msg
         return $false
@@ -1051,11 +1054,11 @@ function Test-AIWorkspaceManifest {
         }
         if (-not $ok) {
             foreach ($e in $errors) {
-                if ($strictMode) { Write-Host "ERROR: $e" -ForegroundColor Red }
+                if ($strictMode) { Write-Host "${ErrorLabel}: $e" -ForegroundColor DarkYellow }
                 else { Write-AIWorkspaceWarn $e }
             }
             if ($strictMode) {
-                throw "Manifest validation failed ($($errors.Count) issue(s)). Re-run install-cursor-global-skill.ps1 from the template repo."
+                throw "Manifest validation failed ($($errors.Count) issue(s)). Re-run install-global-skill.ps1 from the template repo."
             }
         }
         return $ok
