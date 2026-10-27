@@ -144,3 +144,4 @@ foreach ($t in $targets) {
 Write-Host "Restart the IDE / new Agent chat, then @aiworkspace-manager"
 Write-Host "Uninstall: pwsh -File `"$(Join-Path $srcSkills 'uninstall-global-skill.ps1')`" -IDE $IDE"
 Write-Host "Doctor:    pwsh -File `"$(Join-Path $srcSkills 'aiws.ps1')`" doctor"
+exit 0

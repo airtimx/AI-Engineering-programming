@@ -92,3 +92,4 @@ else {
 
 Write-Host ""
 Write-Host "Workspace initialization completed."
+exit 0

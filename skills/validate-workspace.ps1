@@ -203,15 +203,24 @@ finally {
     Remove-Item -LiteralPath $manDir -Recurse -Force -ErrorAction SilentlyContinue
 }
 
-# Uninstall to temp SkillRoot
+# Uninstall to temp SkillRoot (deprecated wrapper must forward exit code)
 $fakeSkill = Join-Path ([IO.Path]::GetTempPath()) ("aiws-uninst-" + [guid]::NewGuid().ToString("N"))
 New-Item -ItemType Directory -Path (Join-Path $fakeSkill "toolkit") -Force | Out-Null
 Write-Utf8NoBomFile -Path (Join-Path $fakeSkill "SKILL.md") -Content "test"
 & (Join-Path $PSScriptRoot "uninstall-cursor-global-skill.ps1") -Force -SkillRoot $fakeSkill
+$uninstCode = $LASTEXITCODE
+Assert-True (($null -eq $uninstCode) -or ($uninstCode -eq 0)) "uninstall wrapper exit 0"
 Assert-True (-not (Test-Path -LiteralPath $fakeSkill)) "uninstall moves skill root away"
 $parentTrash = Join-Path (Split-Path -Parent $fakeSkill) ".trash"
 $bakHit = @(Get-ChildItem -LiteralPath $parentTrash -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -like "aiworkspace-manager-*" })
 Assert-True ($bakHit.Count -ge 1) "uninstall backup under .trash"
+
+# Repo scripts for local one-shot verify
+$scriptsDir = Join-Path (Split-Path -Parent $PSScriptRoot) "scripts"
+if (Test-Path -LiteralPath $scriptsDir) {
+    Assert-True (Test-Path -LiteralPath (Join-Path $scriptsDir "bootstrap-pester.ps1")) "present: scripts/bootstrap-pester.ps1"
+    Assert-True (Test-Path -LiteralPath (Join-Path $scriptsDir "verify-local.ps1")) "present: scripts/verify-local.ps1"
+}
 Remove-Item -LiteralPath $parentTrash -Recurse -Force -ErrorAction SilentlyContinue
 
 # init on brand-new empty directory (no .git)

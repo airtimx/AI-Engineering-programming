@@ -110,4 +110,6 @@ switch ($Command) {
     }
 }
 
-exit $LASTEXITCODE
+$code = $LASTEXITCODE
+if ($null -eq $code) { exit 0 }
+exit $code

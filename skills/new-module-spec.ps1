@@ -100,3 +100,4 @@ $displayName
 
     Write-Host "Module files ready in: $moduleDir"
 }
+exit 0

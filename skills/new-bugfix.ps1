@@ -74,3 +74,4 @@ Write-Utf8NoBomFile -Path $filePath -Content @"
 "@
 
 Write-Host "Created bugfix file: $filePath"
+exit 0

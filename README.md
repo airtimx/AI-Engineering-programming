@@ -1,6 +1,6 @@
 # AI Skill Workspace
 
-可复用 AI 工作区脚手架（**toolkit v1.5.1**，MIT）。
+可复用 AI 工作区脚手架（**toolkit v1.5.2**，MIT）。
 
 **产品边界**：只做 specs/cache 脚手架与 Skill 安装；**不**自动改业务代码、不自动开 PR（`-SuggestCommit` 仅打印文案）。多人用 `claim`/`release`/`who` 轻量认领，不是完整项目管理。
 
@@ -93,7 +93,16 @@
 | 3 | 锁超时 |
 | 4 | 全局 manifest 漂移 |
 
-## 质量门禁
+## 质量门禁（本地一键）
 
-`validate-workspace.ps1` · `run-tests.ps1` · `analyze-workspace.ps1` · CI（Windows 全量 + Ubuntu pwsh）  
-[RELEASE.md](RELEASE.md) · [CHANGELOG.md](CHANGELOG.md) · [LICENSE](LICENSE) · [使用说明.md](使用说明.md)
+```powershell
+./scripts/verify-local.ps1
+# 或分步：
+./scripts/bootstrap-pester.ps1   # 装 Pester 5.5+（兼容本机自带 3.4）
+./skills/validate-workspace.ps1
+./skills/run-tests.ps1           # Invoke-Pester tests/
+./skills/analyze-workspace.ps1
+```
+
+CI（Windows + Ubuntu）：bootstrap → validate → **Invoke-Pester `tests/`** → analyzer。  
+[RELEASE.md](RELEASE.md) · [CHANGELOG.md](CHANGELOG.md) · [LICENSE](LICENSE) · [使用说明.md](使用说明.md) · [REMOTE.md](REMOTE.md)

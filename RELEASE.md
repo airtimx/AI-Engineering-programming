@@ -14,17 +14,15 @@
 - [ ] Bump `skills/VERSION`
 - [ ] Update `CHANGELOG.md`
 - [ ] Align README / 使用说明 / reference.md
-- [ ] `./skills/validate-workspace.ps1` → 0
-- [ ] `./skills/run-tests.ps1` → 0
-- [ ] `./skills/analyze-workspace.ps1` → 0
+- [ ] `./scripts/verify-local.ps1` → 0（或分步 validate / run-tests / analyze）
 - [ ] `./skills/aiws.ps1 doctor` clean on a sample project
 - [ ] All `skills/*.ps1` have UTF-8 BOM (`validate` checks)
-- [ ] `git remote -v` configured (see REMOTE.md) and CI green
+- [ ] `git remote -v` configured (see REMOTE.md) and CI green（含 Invoke-Pester tests/）
 
 ## Git
 
 ```powershell
-git tag -a v1.5.1 -m "toolkit 1.5.1"
+git tag -a v1.5.2 -m "toolkit 1.5.2"
 git push origin main --tags
 ```
 

@@ -11,6 +11,9 @@ param(
     [string]$SkillRoot = ""
 )
 
+$ErrorActionPreference = "Stop"
 Write-Warning "DEPRECATED: uninstall-cursor-global-skill.ps1 → use uninstall-global-skill.ps1."
 & (Join-Path $PSScriptRoot "uninstall-global-skill.ps1") -IDE $IDE -Force:$Force -SkillRoot $SkillRoot
-exit $LASTEXITCODE
+$code = $LASTEXITCODE
+if ($null -eq $code) { exit 0 }
+exit $code

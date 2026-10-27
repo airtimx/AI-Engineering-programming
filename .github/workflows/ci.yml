@@ -13,16 +13,26 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Bootstrap Pester 5.5+
+        shell: pwsh
+        run: |
+          ./scripts/bootstrap-pester.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: validate-workspace
         shell: pwsh
         run: |
           ./skills/validate-workspace.ps1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Pester unit tests (via run-tests.ps1)
+      - name: Unit tests — Invoke-Pester tests/
         shell: pwsh
         run: |
-          ./skills/run-tests.ps1
+          # Explicit gate: real Pester suite under tests/ (not smoke-only)
+          # Prefer skills/run-tests.ps1 (pins Pester 5.x, exit-code contract)
+          ./scripts/bootstrap-pester.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ./skills/run-tests.ps1 -SkipInstall
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: PSScriptAnalyzer
@@ -40,6 +50,7 @@ jobs:
           if (-not (Test-Path -LiteralPath $rule)) { throw "Missing $rule" }
           $dest = Join-Path $env:RUNNER_TEMP ("trae-skill-" + [guid]::NewGuid().ToString("N") + "/aiworkspace-manager")
           ./skills/install-global-skill.ps1 -IDE Trae -SkillRoot $dest
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $tk = Join-Path $dest "toolkit"
           $names = @(
             "workspace-config.ps1", "init-workspace.ps1", "auto-requirement.ps1",
@@ -61,17 +72,32 @@ jobs:
           if ($skill -notmatch '(?i)trae-cn') { throw "Trae SKILL.md missing .trae-cn path" }
           Write-Host "Trae skill directory hashes match repository skills/"
           ./skills/uninstall-global-skill.ps1 -IDE Trae -Force -SkillRoot $dest
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
   validate-ubuntu-pwsh:
-    name: validate (ubuntu pwsh)
+    name: validate + pester (ubuntu pwsh)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Bootstrap Pester 5.5+
+        shell: pwsh
+        run: |
+          ./scripts/bootstrap-pester.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: validate-workspace on PowerShell 7
         shell: pwsh
         run: |
           ./skills/validate-workspace.ps1 -SkipWriteTest
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Unit tests — Invoke-Pester tests/
+        shell: pwsh
+        run: |
+          ./scripts/bootstrap-pester.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ./skills/run-tests.ps1 -SkipInstall
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: path helpers + preferred bundle name

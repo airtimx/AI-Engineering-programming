@@ -302,3 +302,4 @@ if ([string]::IsNullOrWhiteSpace($Title) -or [string]::IsNullOrWhiteSpace($Requi
 
 New-RequirementModule -InputTitle $Title -InputRequirement $Requirement -InputPriority $Priority -BaseRoot $WorkspaceBundle
 Write-Host "Auto mode completed."
+exit (Get-AIWorkspaceExitCode -Kind Ok)

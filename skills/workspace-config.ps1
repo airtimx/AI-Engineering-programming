@@ -15,7 +15,7 @@ $script:AIWorkspaceBundleDirName = if (-not [string]::IsNullOrWhiteSpace($env:AI
 else {
     $script:AIWorkspaceBundleDirPreferred
 }
-$script:AIWorkspaceToolkitVersion = "1.5.1"
+$script:AIWorkspaceToolkitVersion = "1.5.2"
 $script:AIWorkspaceStatusEnum = @("initialized", "in_progress", "done", "unknown")
 $script:AIWorkspaceExitOk = 0
 $script:AIWorkspaceExitFail = 1

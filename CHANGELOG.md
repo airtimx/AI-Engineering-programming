@@ -2,6 +2,19 @@
 
 All notable changes to AI Workspace Manager (toolkit) are documented here.
 
+## [1.5.2] - 2026-10-27
+
+### Added
+- `scripts/bootstrap-pester.ps1` — install Pester ≥5.5 for CurrentUser (side-by-side with Win 3.4).
+- `scripts/verify-local.ps1` — one-shot: bootstrap → validate → Invoke-Pester `tests/` → analyzer.
+
+### Fixed
+- Exit-code contract: install/uninstall wrappers, `install-global-skill`, `run-tests`, init/new-*/auto forward or `exit 0`/`exit $LASTEXITCODE` (no stale codes).
+- CI: explicit `Invoke-Pester` on `tests/` (Windows + Ubuntu) after bootstrap; not smoke-only.
+
+### Changed
+- Version **1.5.2**.
+
 ## [1.5.1] - 2026-10-24
 
 ### Fixed / hardened
