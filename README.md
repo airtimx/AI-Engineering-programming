@@ -47,7 +47,7 @@
 - **做**：在 `workspace/`（或兼容旧名 `codestatrFirst/`）生成 specs/cache/bugfix 骨架与续接状态。  
 - **不做**：自动开 PR/Issue、改业务代码（刻意保持薄；可用 `-SuggestCommit` 只打印建议文案）。
 
-**支持矩阵**：Windows PowerShell 5.1（主）、PowerShell 7+ Windows；Linux/macOS 为 CI 冒烟/尽力，非第一方对等支持。对话触发依赖 Cursor / Trae Skill；脚本可独立跑。
+**支持矩阵**：Windows PowerShell 5.1（主）、PowerShell 7+ Windows；Linux/macOS 为 CI 冒烟/尽力，非第一方对等支持。对话触发依赖 Cursor / Trae Skill；脚本可独立跑。规则唯一来源是 `.cursor/skills/aiworkspace-manager/reference.md`，`SKILL.md` / `SKILL.global.md` 仅做入口适配。
 
 ## 统一入口速查
 
@@ -102,11 +102,12 @@
 ```powershell
 ./scripts/verify-local.ps1
 # 或分步：
-./scripts/bootstrap-pester.ps1          # 装 Pester 5.5+（兼容本机自带 3.4）
+./scripts/bootstrap-pester.ps1          # 装 Pester 5.7.1（锁定版本，兼容本机自带 3.4）
 ./skills/validate-workspace.ps1 -Quiet  # 推荐 Quiet
 ./skills/run-tests.ps1                  # Invoke-Pester tests/
 ./skills/analyze-workspace.ps1
 ```
 
 CI（Windows + Ubuntu）：bootstrap → validate → **Invoke-Pester `tests/`** → analyzer。  
+推送 `v*` tag 触发 Release 工作流（打包 zip + SHA256 并创建 Release，见 [REMOTE.md](REMOTE.md)）。
 [RELEASE.md](RELEASE.md) · [CHANGELOG.md](CHANGELOG.md) · [LICENSE](LICENSE) · [使用说明.md](使用说明.md) · [REMOTE.md](REMOTE.md)

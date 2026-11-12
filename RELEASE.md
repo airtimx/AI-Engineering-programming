@@ -18,7 +18,7 @@
 - [ ] Align README / 使用说明 / reference.md
 - [ ] `./scripts/verify-local.ps1` → 0（或分步 validate -Quiet / run-tests / analyze）
 - [ ] `./skills/aiws.ps1 doctor` clean on a sample project
-- [ ] All `skills/*.ps1` have UTF-8 BOM (`validate` checks)
+- [ ] 所有 `.ps1`（`skills/*` 与 `scripts/*`）为 UTF-8 BOM；含中文的脚本缺 BOM 会让 PS 5.1 解析失败（`validate` 覆盖 `skills/*`）
 - [ ] `git remote -v` configured (see REMOTE.md) and CI green（含 Invoke-Pester tests/）
 
 ## Git
@@ -29,6 +29,8 @@ git push origin main --tags
 ```
 
 If no remote yet: create GitHub/Origin repo, then `git remote add origin <url>` and push.
+
+推送 tag 会触发 Release 工作流：`./scripts/build-release.ps1 -ExpectedVersion <tag>` → `dist/AIWorkspaceManager-<版本>.zip` + `.sha256` → `gh release create`。本地等价自测：`./scripts/build-release.ps1 -ExpectedVersion v1.5.3`。
 
 ## Support matrix
 

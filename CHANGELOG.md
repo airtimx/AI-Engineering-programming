@@ -1,17 +1,20 @@
 # Changelog
 
+All notable changes to AI Workspace Manager (toolkit) are documented here.
+
 ## [Unreleased]
+
+## [1.5.3] - 2026-10-27 (tag re-cut 2026-11-12)
 
 ### Production hardening
 - Fixed the full PSScriptAnalyzer gate and removed stale parameters/automatic-variable collisions.
-- Locked Pester and PSScriptAnalyzer versions in `skills/dependency-versions.ps1`.
-- Added CLI end-to-end tests for init/new and uninstall safety.
+- Locked Pester and PSScriptAnalyzer versions in `skills/dependency-versions.ps1` (Pester `5.7.1` / PSScriptAnalyzer `1.25.0`).
+- Added CLI end-to-end tests for init/new and uninstall safety (`tests/` 共 18 例).
 - Added tag-based release packaging with SHA256 checksums and pinned GitHub Actions checkout.
 - CI now exercises Windows PowerShell 5.1 as the primary runtime alongside PowerShell 7 on Ubuntu.
-
-All notable changes to AI Workspace Manager (toolkit) are documented here.
-
-## [1.5.3] - 2026-10-27
+- Fixed the release-only failure: `scripts/build-release.ps1` 无 UTF-8 BOM 且内含中文文件名 `使用说明.md`；Windows PowerShell 5.1 在 CP1252 runner 上把字节 `0x94` 解码为 `U+201D`（PowerShell 视其为字符串定界符），脚本在跑任何门禁前即以退出码 1 结束。现改为用 `Get-ChildItem` 收集根目录 `*.md`，`.ps1` 一律带 BOM。
+- Docs: `.cursor/skills/aiworkspace-manager/reference.md` 为唯一规则源；`SKILL.md` / `SKILL.global.md` 只保留入口。
+- Tests: 负例用例改用 `-ErrorLabel EXPECT-ERROR`，避免把预期错误误读为失败。
 
 ### Added
 - `validate-workspace.ps1 -Quiet`（可选 `-VerboseSandbox`）：只打 `[OK]/[FAIL]/EXPECT-ERROR` 与汇总。

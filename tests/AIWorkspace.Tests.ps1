@@ -79,7 +79,7 @@ Describe "Test-AIWorkspaceManifest -Strict" {
             files   = @(@{ name = "a.ps1"; sha256 = "00"; bytes = 2 }, @{ name = "VERSION"; sha256 = "00"; bytes = 1 })
         } | ConvertTo-Json -Depth 5
         Set-Content -Path (Join-Path $dir "manifest.json") -Value $man -Encoding utf8
-        { Test-AIWorkspaceManifest -ToolkitDir $dir -Strict } | Should -Throw
+        { Test-AIWorkspaceManifest -ToolkitDir $dir -Strict -ErrorLabel "EXPECT-ERROR" } | Should -Throw
     }
 }
 

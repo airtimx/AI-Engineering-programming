@@ -1,28 +1,26 @@
 ---
 name: aiworkspace-manager
 description: >-
-  Initializes workspace/ (legacy codestatrFirst), writes 项目说明.md, generates
-  spec/design/tasks, resumes via toolkit v1.5+. Prefer ./skills/aiws.ps1.
+  Project-local AI Workspace Manager skill. Use ./skills/aiws.ps1 to initialize workspace/,
+  create specs, resume progress, and diagnose the toolkit.
 ---
 
 # AI Workspace Manager
 
-精简正文以省 token；细则见 [reference.md](reference.md)。**必须终端执行脚本落盘**。
+详细规则唯一来源：[reference.md](reference.md)。本文件只定义当前项目的执行入口。
 
 ## 执行入口
 
-优先：`./skills/aiws.ps1`（`init|new|resume|status|install|doctor`）。
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File "./skills/aiws.ps1" <command>
+```
 
-| 场景 | 命令 |
-|------|------|
-| 本仓库 | `powershell -NoProfile -ExecutionPolicy Bypass -File "./skills/aiws.ps1" <cmd>` |
-| 其它项目 / 全局 toolkit | 同上，加 `-Root "<项目绝对路径>"` |
+优先命令：`init`、`new`、`resume`、`status`、`claim`、`release`、`who`、`install`、`uninstall`、`doctor`。
 
 ## 工作流
 
+```text
+aiws init -> aiws new -> 编辑 workspace/specs/<module>/tasks.md -> aiws resume -SyncCache
 ```
-- [ ] P0: aiws.ps1 init → workspace/ + 项目说明.md
-- [ ] P1: aiws.ps1 new → specs 三件套 + cache
-- [ ] 勾选 tasks.md → aiws.ps1 resume -SyncCache
-- [ ] 再写业务代码
-```
+
+不要伪造已创建的工作区文件；必须通过终端执行脚本落盘。不要自动修改业务代码或创建 Git 提交/PR。

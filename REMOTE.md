@@ -10,7 +10,7 @@
 ```powershell
 git remote add origin https://github.com/<你>/<仓库名>.git
 git push -u origin main
-git tag -a v1.5.1 -m "toolkit 1.5.1"
+git tag -a v1.5.3 -m "toolkit 1.5.3"
 git push origin --tags
 ```
 
@@ -37,4 +37,23 @@ git push -u origin main
 git remote -v
 ./skills/aiws.ps1 doctor
 # 推送后在 GitHub Actions 查看 CI：validate + Pester + analyzer + Trae hash sync
+```
+
+## 网络受限时
+
+直连 `github.com:443` 被重置（`Recv failure: Connection was reset`、`Failed to connect ... port 443`）时，可临时走本机代理：
+
+```powershell
+git -c http.proxy=http://127.0.0.1:7897 push origin main
+git -c http.proxy=http://127.0.0.1:7897 push origin v1.5.3
+```
+
+## Tag 触发 Release
+
+推送 `v*` tag 会触发 `.github/workflows/release.yml`：`scripts/build-release.ps1 -ExpectedVersion <tag>` → 产出 `dist/AIWorkspaceManager-<版本>.zip` + `.sha256` → `gh release create`。
+
+失败排查：运行日志需要登录（匿名 API 只能看到 `conclusion`，日志接口返回 403）；本地等价命令为：
+
+```powershell
+./scripts/build-release.ps1 -ExpectedVersion v1.5.3
 ```
