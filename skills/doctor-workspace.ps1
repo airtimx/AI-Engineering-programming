@@ -14,7 +14,6 @@ $issues = New-Object System.Collections.Generic.List[object]
 $fixes = New-Object System.Collections.Generic.List[string]
 $ver = Get-AIWorkspaceToolkitVersion
 $repoSkills = $PSScriptRoot
-$repoRootGuess = Split-Path -Parent $repoSkills
 
 function Add-Issue {
     param([string]$Code, [string]$Message, [string]$Fix = "")

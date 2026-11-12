@@ -87,7 +87,7 @@ $displayName
     }
 
     $progress = Get-TasksProgressSummary -TasksPath $tasksPath
-    $fields = New-AIWorkspaceCacheSchema `
+$fields = Get-AIWorkspaceCacheSchema `
         -ModuleName $safeName `
         -Title $displayName `
         -Requirement "" `

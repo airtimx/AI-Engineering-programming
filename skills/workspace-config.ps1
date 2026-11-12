@@ -117,9 +117,9 @@ function Get-AIWorkspaceHomeDirectory {
     if (-not [string]::IsNullOrWhiteSpace($env:HOME)) {
         return $env:HOME.TrimEnd('\', '/')
     }
-    $profile = [Environment]::GetFolderPath([Environment+SpecialFolder]::UserProfile)
-    if (-not [string]::IsNullOrWhiteSpace($profile)) {
-        return $profile
+    $userProfile = [Environment]::GetFolderPath([Environment+SpecialFolder]::UserProfile)
+    if (-not [string]::IsNullOrWhiteSpace($userProfile)) {
+        return $userProfile
     }
     throw "Cannot resolve user home (USERPROFILE/HOME)."
 }
@@ -227,7 +227,7 @@ function Test-LooksLikeProjectRoot {
     return $false
 }
 
-function Find-AIWorkspaceProjectRootCandidates {
+function Find-AIWorkspaceProjectRootCandidate {
     param(
         [string]$StartPath = "",
         [int]$MaxDepth = 14
@@ -388,7 +388,7 @@ function Resolve-AIRepositoryRoot {
         $candidate = $env:AIWORKSPACE_PROJECT_ROOT.Trim()
     }
     elseif ($isGlobalToolkit) {
-        $cands = @(Find-AIWorkspaceProjectRootCandidates -StartPath (Get-Location).Path)
+        $cands = @(Find-AIWorkspaceProjectRootCandidate -StartPath (Get-Location).Path)
         if ($cands.Count -eq 1) {
             if ($SkipDetectConfirm -or (Confirm-AIWorkspaceDetectedRoot -Candidate $cands[0])) {
                 $candidate = $cands[0]
@@ -409,7 +409,7 @@ function Resolve-AIRepositoryRoot {
         $candidate = $parent
         # If skills parent is not a project but cwd is, prefer detected cwd (interactive tools)
         if (-not (Test-LooksLikeProjectRoot -FullPath $candidate)) {
-            $cands = @(Find-AIWorkspaceProjectRootCandidates -StartPath (Get-Location).Path)
+            $cands = @(Find-AIWorkspaceProjectRootCandidate -StartPath (Get-Location).Path)
             if ($cands.Count -eq 1) {
                 if ($SkipDetectConfirm -or (Confirm-AIWorkspaceDetectedRoot -Candidate $cands[0])) {
                     $candidate = $cands[0]
@@ -516,7 +516,7 @@ function Move-ToAIWorkspaceTrash {
     return $dest
 }
 
-function Clear-AIWorkspaceGarbledDocs {
+function Clear-AIWorkspaceGarbledDocSet {
     param([Parameter(Mandatory = $true)][string]$BundleRoot)
 
     $whitelist = Get-AIWorkspaceGarbledDocWhitelist
@@ -618,6 +618,7 @@ function Get-AIWorkspaceModuleOwner {
 }
 
 function Set-AIWorkspaceModuleOwner {
+    [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = "Medium")]
     param(
         [Parameter(Mandatory = $true)][string]$BundleRoot,
         [Parameter(Mandatory = $true)][string]$ModuleName,
@@ -625,6 +626,10 @@ function Set-AIWorkspaceModuleOwner {
         [switch]$Force,
         [switch]$Clear
     )
+    if (-not $PSCmdlet.ShouldProcess("$ModuleName cache owner", "Update")) {
+        return $null
+    }
+
     $specsDir = Join-Path $BundleRoot "specs"
     $modDir = Join-Path $specsDir $ModuleName
     if (-not (Test-Path -LiteralPath $modDir)) {
@@ -671,7 +676,7 @@ function Set-AIWorkspaceModuleOwner {
         }
     }
     # Empty Owner omits owner key (release); non-empty claims
-    $fields = New-AIWorkspaceCacheSchema `
+    $fields = Get-AIWorkspaceCacheSchema `
         -ModuleName $ModuleName `
         -Title $title `
         -Requirement $requirement `
@@ -696,7 +701,7 @@ function Test-AIWorkspaceOwnerConflict {
     return ($ModuleOwner.Trim() -ne $Me.Trim())
 }
 
-function Test-ValidUtf8Bytes {
+function Test-ValidUtf8ByteSequence {
     param([byte[]]$Bytes)
     try {
         $utf8 = New-Object System.Text.UTF8Encoding $false, $true
@@ -719,11 +724,11 @@ function Read-Utf8File {
         $bytes = $bytes[3..($bytes.Length - 1)]
     }
     if ($Strict -or $env:AIWORKSPACE_STRICT_UTF8 -eq "1") {
-        if (-not (Test-ValidUtf8Bytes -Bytes $bytes)) {
+        if (-not (Test-ValidUtf8ByteSequence -Bytes $bytes)) {
             throw "File is not valid UTF-8: $Path`nPlease re-save as UTF-8 (no ANSI/GBK)."
         }
     }
-    elseif (-not (Test-ValidUtf8Bytes -Bytes $bytes)) {
+    elseif (-not (Test-ValidUtf8ByteSequence -Bytes $bytes)) {
         Write-AIWorkspaceWarn "file may not be UTF-8: $Path (re-save as UTF-8 recommended)"
     }
     return [System.Text.Encoding]::UTF8.GetString($bytes)
@@ -783,7 +788,7 @@ function Get-UniqueModuleName {
     return $name
 }
 
-function New-AIWorkspaceCacheSchema {
+function Get-AIWorkspaceCacheSchema {
     param(
         [Parameter(Mandatory = $true)][string]$ModuleName,
         [string]$Title = "",
@@ -882,6 +887,7 @@ function Write-ModuleCacheJson {
         [switch]$AlreadyLocked
     )
 
+    $fieldValues = $Fields
     $write = {
         $cacheDir = Join-Path $BundleRoot "cache"
         if (-not (Test-Path -LiteralPath $cacheDir)) {
@@ -889,7 +895,7 @@ function Write-ModuleCacheJson {
         }
         $cacheFile = Join-Path $cacheDir "$ModuleName.json"
         $payload = [ordered]@{}
-        foreach ($key in @($Fields.Keys)) { $payload[$key] = $Fields[$key] }
+        foreach ($key in @($fieldValues.Keys)) { $payload[$key] = $fieldValues[$key] }
         if (-not $payload.Contains("schema_version")) { $payload["schema_version"] = 1 }
         if (-not $payload.Contains("toolkit_version")) { $payload["toolkit_version"] = Get-AIWorkspaceToolkitVersion }
         if (-not $payload.Contains("updated_at")) { $payload["updated_at"] = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss") }
@@ -1000,7 +1006,7 @@ function Get-DerivedModuleStatus {
     return "initialized"
 }
 
-function Ensure-AIWorkspaceGitkeeps {
+function Ensure-AIWorkspaceGitkeep {
     param([string]$BundleRoot)
     foreach ($folder in @("agents", "skills", "cache", "specs", "bugfix", ".locks", ".trash")) {
         $dir = Join-Path $BundleRoot $folder

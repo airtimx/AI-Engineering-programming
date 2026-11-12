@@ -31,13 +31,13 @@ else {
     Write-Host "Bundle exists: $bundleRoot"
 }
 
-Ensure-AIWorkspaceGitkeeps -BundleRoot $bundleRoot
+Ensure-AIWorkspaceGitkeep -BundleRoot $bundleRoot
 foreach ($folder in @("agents", "skills", "cache", "specs", "bugfix")) {
     Write-Host "Ready:  $(Join-Path $bundleRoot $folder)"
 }
 
 # Exact whitelist only → move to .trash/ (never broad delete)
-[void](Clear-AIWorkspaceGarbledDocs -BundleRoot $bundleRoot)
+[void](Clear-AIWorkspaceGarbledDocSet -BundleRoot $bundleRoot)
 
 $docPath = Join-Path $bundleRoot (Get-AIWorkspaceProjectDocFileName)
 $shouldWriteDoc = $ForceDoc -or -not (Test-Path -LiteralPath $docPath)

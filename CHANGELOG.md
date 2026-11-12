@@ -1,5 +1,14 @@
 # Changelog
 
+## [Unreleased]
+
+### Production hardening
+- Fixed the full PSScriptAnalyzer gate and removed stale parameters/automatic-variable collisions.
+- Locked Pester and PSScriptAnalyzer versions in `skills/dependency-versions.ps1`.
+- Added CLI end-to-end tests for init/new and uninstall safety.
+- Added tag-based release packaging with SHA256 checksums and pinned GitHub Actions checkout.
+- CI now exercises Windows PowerShell 5.1 as the primary runtime alongside PowerShell 7 on Ubuntu.
+
 All notable changes to AI Workspace Manager (toolkit) are documented here.
 
 ## [1.5.3] - 2026-10-27

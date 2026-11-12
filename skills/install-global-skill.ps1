@@ -85,7 +85,7 @@ function Install-AIWorkspaceIdeSkill {
         "install-cursor-global-skill.ps1", "uninstall-global-skill.ps1",
         "uninstall-cursor-global-skill.ps1", "doctor-workspace.ps1", "aiws.ps1",
         "claim-module.ps1", "run-tests.ps1", "analyze-workspace.ps1",
-        "VERSION", "requirements.batch.txt", "requirements.batch.example.txt"
+        "dependency-versions.ps1", "VERSION", "requirements.batch.txt", "requirements.batch.example.txt"
     )
     foreach ($n in $copyNames) {
         $src = Join-Path $srcSkills $n

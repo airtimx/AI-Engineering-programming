@@ -11,38 +11,35 @@ jobs:
     name: validate + pester (windows)
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      - name: Bootstrap Pester 5.5+
-        shell: pwsh
+      - name: Bootstrap locked Pester
+        shell: powershell
         run: |
           ./scripts/bootstrap-pester.ps1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: validate-workspace
-        shell: pwsh
+        shell: powershell
         run: |
           ./skills/validate-workspace.ps1 -Quiet
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Unit tests — Invoke-Pester tests/
-        shell: pwsh
+        shell: powershell
         run: |
-          # Explicit gate: real Pester suite under tests/ (not smoke-only)
-          # Prefer skills/run-tests.ps1 (pins Pester 5.x, exit-code contract)
-          ./scripts/bootstrap-pester.ps1
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # Explicit gate: real Pester suite under tests/ (not smoke-only).
           ./skills/run-tests.ps1 -SkipInstall
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: PSScriptAnalyzer
-        shell: pwsh
+        shell: powershell
         run: |
           ./skills/analyze-workspace.ps1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Trae skill hash sync (install -IDE Trae vs repo)
-        shell: pwsh
+        shell: powershell
         run: |
           $ErrorActionPreference = "Stop"
           . ./skills/workspace-config.ps1
@@ -57,7 +54,7 @@ jobs:
             "new-module-spec.ps1", "new-bugfix.ps1", "resume-workspace.ps1",
             "validate-workspace.ps1", "aiws.ps1", "doctor-workspace.ps1", "claim-module.ps1",
             "install-global-skill.ps1", "uninstall-global-skill.ps1",
-            "run-tests.ps1", "analyze-workspace.ps1", "VERSION"
+            "run-tests.ps1", "analyze-workspace.ps1", "dependency-versions.ps1", "VERSION"
           )
           foreach ($n in $names) {
             $a = Join-Path "skills" $n
@@ -78,9 +75,9 @@ jobs:
     name: validate + pester (ubuntu pwsh)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      - name: Bootstrap Pester 5.5+
+      - name: Bootstrap locked Pester
         shell: pwsh
         run: |
           ./scripts/bootstrap-pester.ps1
@@ -95,8 +92,6 @@ jobs:
       - name: Unit tests — Invoke-Pester tests/
         shell: pwsh
         run: |
-          ./scripts/bootstrap-pester.ps1
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           ./skills/run-tests.ps1 -SkipInstall
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 

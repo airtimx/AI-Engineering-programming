@@ -28,22 +28,30 @@ else {
 $WorkspaceBundle = Get-AIWorkspaceBundlePath -RepositoryRoot $repoRoot
 
 function New-RequirementModule {
+    [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = "Medium")]
     param(
         [string]$InputTitle,
         [string]$InputRequirement,
         [string]$InputPriority,
-        [string]$BaseRoot
+        [string]$BaseRoot,
+        [switch]$AsciiNames
     )
 
     if ([string]::IsNullOrWhiteSpace($InputTitle) -or [string]::IsNullOrWhiteSpace($InputRequirement)) {
         throw "Title and Requirement are required for each item."
     }
 
+    $useAsciiNames = [bool]$AsciiNames
+    $priorityValue = $InputPriority
+    if (-not $PSCmdlet.ShouldProcess($InputTitle, "Create requirement module under $BaseRoot")) {
+        return
+    }
+
     Invoke-WithAIWorkspaceLock -BundleRoot $BaseRoot -LockName "specs-create" -Action {
         $createdAt = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
         $safeTitle = Protect-AIWorkspaceMarkdownText -Value $InputTitle -Mode Inline
         $safeRequirement = Protect-AIWorkspaceMarkdownText -Value $InputRequirement -Mode Block
-        $moduleName = Normalize-AIWorkspaceName -Value $InputTitle -AsciiOnly:$AsciiNames
+        $moduleName = Normalize-AIWorkspaceName -Value $InputTitle -AsciiOnly:$useAsciiNames
         $moduleName = Get-UniqueModuleName -BaseRoot $BaseRoot -Candidate $moduleName
 
         $moduleDir = Join-Path $BaseRoot (Join-Path "specs" $moduleName)
@@ -119,11 +127,11 @@ $safeTitle
 
         $progress = Get-TasksProgressSummary -TasksPath $tasksPath
         $bundleLeaf = Split-Path -Leaf $BaseRoot
-        $fields = New-AIWorkspaceCacheSchema `
+        $fields = Get-AIWorkspaceCacheSchema `
             -ModuleName $moduleName `
             -Title $safeTitle `
             -Requirement $safeRequirement `
-            -Priority $InputPriority `
+            -Priority $priorityValue `
             -Status "initialized" `
             -OpenTodoCount $progress.Todo `
             -DoneCount $progress.Done `
@@ -137,7 +145,7 @@ $safeTitle
     }
 }
 
-function Parse-BatchItems {
+function Get-AIWorkspaceBatchItem {
     param([string]$Path)
 
     if (-not (Test-Path -LiteralPath $Path)) {
@@ -208,7 +216,7 @@ if (-not [string]::IsNullOrWhiteSpace($BatchFile)) {
         $BatchFile = Join-Path $repoRoot $rel
     }
 
-    $batchItems = @(Parse-BatchItems -Path $BatchFile)
+    $batchItems = @(Get-AIWorkspaceBatchItem -Path $BatchFile)
     if ($batchItems.Count -eq 0) {
         throw "Batch file has no valid items."
     }
@@ -233,7 +241,7 @@ if (-not [string]::IsNullOrWhiteSpace($BatchFile)) {
     for ($i = $startIndex; $i -lt $batchItems.Count; $i++) {
         $item = $batchItems[$i]
         try {
-            New-RequirementModule -InputTitle $item.Title -InputRequirement $item.Requirement -InputPriority $item.Priority -BaseRoot $WorkspaceBundle
+            New-RequirementModule -InputTitle $item.Title -InputRequirement $item.Requirement -InputPriority $item.Priority -BaseRoot $WorkspaceBundle -AsciiNames:$AsciiNames
             $completed += $item.Title
             $created += $item.Title
             Write-AIWorkspaceBatchState -BundleRoot $WorkspaceBundle -State ([ordered]@{
@@ -300,6 +308,6 @@ if ([string]::IsNullOrWhiteSpace($Title) -or [string]::IsNullOrWhiteSpace($Requi
     throw "Title and Requirement are required."
 }
 
-New-RequirementModule -InputTitle $Title -InputRequirement $Requirement -InputPriority $Priority -BaseRoot $WorkspaceBundle
+New-RequirementModule -InputTitle $Title -InputRequirement $Requirement -InputPriority $Priority -BaseRoot $WorkspaceBundle -AsciiNames:$AsciiNames
 Write-Host "Auto mode completed."
 exit (Get-AIWorkspaceExitCode -Kind Ok)

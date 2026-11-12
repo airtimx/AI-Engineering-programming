@@ -17,7 +17,8 @@ $ErrorActionPreference = "Stop"
 function Uninstall-One {
     param(
         [ValidateSet("Cursor", "Trae")][string]$TargetIde,
-        [string]$RootOverride
+        [string]$RootOverride,
+        [switch]$Force
     )
     if ([string]::IsNullOrWhiteSpace($RootOverride)) {
         $globalSkill = Get-AIWorkspaceGlobalSkillPath -IDE $TargetIde
@@ -56,12 +57,12 @@ if ($IDE -eq "All") {
     if (-not [string]::IsNullOrWhiteSpace($SkillRoot)) {
         throw "-SkillRoot cannot be combined with -IDE All."
     }
-    Uninstall-One -TargetIde Cursor -RootOverride ""
-    Uninstall-One -TargetIde Trae -RootOverride ""
+    Uninstall-One -TargetIde Cursor -RootOverride "" -Force:$Force
+    Uninstall-One -TargetIde Trae -RootOverride "" -Force:$Force
 }
 else {
     $ide = Resolve-AIWorkspaceIdeName -IDE $IDE
-    Uninstall-One -TargetIde $ide -RootOverride $SkillRoot
+    Uninstall-One -TargetIde $ide -RootOverride $SkillRoot -Force:$Force
 }
 
 exit (Get-AIWorkspaceExitCode -Kind Ok)

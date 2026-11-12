@@ -59,7 +59,7 @@ Describe "Write-ModuleCacheJson locking" {
     It "writes schema under lock" {
         $bundle = Join-Path $TestDrive "codestatrFirst"
         New-Item -ItemType Directory -Path $bundle | Out-Null
-        $fields = New-AIWorkspaceCacheSchema -ModuleName "m1" -Title "T" -Requirement "R" -Priority "P1"
+        $fields = Get-AIWorkspaceCacheSchema -ModuleName "m1" -Title "T" -Requirement "R" -Priority "P1"
         $path = Write-ModuleCacheJson -BundleRoot $bundle -ModuleName "m1" -Fields $fields
         Test-Path -LiteralPath $path | Should -Be $true
         $obj = (Get-Content -LiteralPath $path -Raw -Encoding utf8) | ConvertFrom-Json

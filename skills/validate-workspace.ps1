@@ -15,6 +15,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "workspace-config.ps1")
+$resolvedRoot = Resolve-AIRepositoryRoot -Root $Root -ScriptHome $PSScriptRoot -AllowEmptyBootstrap -SkipDetectConfirm
 
 $failed = 0
 function Assert-True([bool]$Cond, [string]$Msg) {
@@ -26,6 +27,12 @@ function Assert-True([bool]$Cond, [string]$Msg) {
 # Assert-True / EXPECT-ERROR / banner still pass through.
 if ($Quiet -and -not $VerboseSandbox) {
     function Write-Host {
+        [Diagnostics.CodeAnalysis.SuppressMessageAttribute(
+            "PSAvoidOverwritingBuiltInCmdlets",
+            "",
+            Justification = "Intentional local output shim filters child-script noise while preserving validate assertions."
+        )]
+        [CmdletBinding()]
         param(
             [Parameter(Position = 0, ValueFromRemainingArguments = $true)]
             [object[]]$Object,
@@ -53,7 +60,7 @@ if ($Quiet -and -not $VerboseSandbox) {
 
 $ver = Get-AIWorkspaceToolkitVersion
 $rt = Get-AIWorkspaceRuntimeInfo
-Write-Host "=== validate-workspace (toolkit $ver | PS $($rt.PSVersion) $($rt.Edition) / $($rt.OS)) ==="
+Write-Host "=== validate-workspace (toolkit $ver | PS $($rt.PSVersion) $($rt.Edition) / $($rt.OS) | root $resolvedRoot) ==="
 
 foreach ($f in @(
         "workspace-config.ps1", "init-workspace.ps1", "auto-requirement.ps1",
@@ -61,7 +68,7 @@ foreach ($f in @(
         "validate-workspace.ps1", "aiws.ps1", "doctor-workspace.ps1", "claim-module.ps1",
         "install-global-skill.ps1", "uninstall-global-skill.ps1",
         "install-cursor-global-skill.ps1", "uninstall-cursor-global-skill.ps1",
-        "run-tests.ps1", "analyze-workspace.ps1", "VERSION", "requirements.batch.example.txt"
+        "run-tests.ps1", "analyze-workspace.ps1", "dependency-versions.ps1", "VERSION", "requirements.batch.example.txt"
     )) {
     Assert-True (Test-Path -LiteralPath (Join-Path $PSScriptRoot $f)) "present: $f"
 }

@@ -4,24 +4,18 @@ Install Pester 5.5+ for CurrentUser (side-by-side with Windows built-in 3.4).
 Does not run tests — use ./skills/run-tests.ps1 or ./scripts/verify-local.ps1.
 #>
 param(
-    [version]$MinimumVersion = "5.5.0",
     [switch]$Force
 )
 
 $ErrorActionPreference = "Stop"
+$repoRoot = Split-Path -Parent $PSScriptRoot
+. (Join-Path (Join-Path $repoRoot "skills") "dependency-versions.ps1")
+$RequiredVersion = $script:AIWorkspacePesterVersion
 
 function Get-Pester5Module {
-    param([version]$Min)
-    $all = @(
-        Get-Module -ListAvailable -Name Pester |
-            Where-Object { $_.Version -ge $Min } |
-            Sort-Object Version -Descending
-    )
-    # Prefer 5.x (PassThru/result object stable); ignore 6+ unless nothing else
-    $v5 = @($all | Where-Object { $_.Version -lt [version]"6.0.0" })
-    if ($v5.Count -gt 0) { return $v5[0] }
-    if ($all.Count -gt 0) { return $all[0] }
-    return $null
+    return Get-Module -ListAvailable -Name Pester |
+        Where-Object { $_.Version -eq $RequiredVersion } |
+        Select-Object -First 1
 }
 
 function Ensure-Tls12 {
@@ -58,13 +52,13 @@ function Ensure-NuGetProvider {
     return $false
 }
 
-$existing = Get-Pester5Module -Min $MinimumVersion
+$existing = Get-Pester5Module
 if ($existing -and -not $Force) {
     Write-Host "Pester $($existing.Version) already available (OK)."
     exit 0
 }
 
-Write-Host "Installing Pester >= $MinimumVersion (CurrentUser)..."
+Write-Host "Installing Pester $RequiredVersion (CurrentUser)..."
 Ensure-Tls12
 if (-not (Ensure-NuGetProvider)) {
     Write-Warning "NuGet provider not ready; Install-Module may still succeed on PowerShell 7."
@@ -81,7 +75,7 @@ try {
     # Prefer Pester 5.x for stable Configuration API; allow override via -Force to get latest
     $installParams = @{
         Name               = "Pester"
-        MinimumVersion     = $MinimumVersion
+        RequiredVersion    = $RequiredVersion
         Scope              = "CurrentUser"
         Force              = $true
         SkipPublisherCheck = $true
@@ -89,20 +83,11 @@ try {
         Confirm            = $false
         ErrorAction        = "Stop"
     }
-    if (-not $Force) {
-        $installParams["MaximumVersion"] = "5.99.99"
-    }
     try {
         Install-Module @installParams
     }
     catch {
-        # Gallery may not honor MaximumVersion on all hosts — fall back to MinimumVersion only
-        if ($installParams.ContainsKey("MaximumVersion")) {
-            Write-Warning "Pester 5.x pin failed ($($_.Exception.Message)); installing >= $MinimumVersion"
-            $installParams.Remove("MaximumVersion")
-            Install-Module @installParams
-        }
-        else { throw }
+        throw
     }
 }
 catch {
@@ -118,9 +103,9 @@ Manual fix (pick one):
     exit 1
 }
 
-$after = Get-Pester5Module -Min $MinimumVersion
+$after = Get-Pester5Module
 if (-not $after) {
-    Write-Error "Pester $MinimumVersion+ install failed."
+    Write-Error "Pester $RequiredVersion install failed."
     exit 1
 }
 

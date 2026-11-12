@@ -129,7 +129,7 @@ foreach ($name in ($modules | Sort-Object)) {
         if (-not [string]::IsNullOrWhiteSpace($status) -and ($statusEnum -notcontains $status)) {
             Write-AIWorkspaceWarn "修正缓存 status ${status}→$newStatus"
         }
-        $fields = New-AIWorkspaceCacheSchema `
+$fields = Get-AIWorkspaceCacheSchema `
             -ModuleName $name `
             -Title $title `
             -Requirement $requirement `

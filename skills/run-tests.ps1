@@ -9,17 +9,15 @@ param(
 
 $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $PSScriptRoot
+. (Join-Path $PSScriptRoot "dependency-versions.ps1")
 if ([string]::IsNullOrWhiteSpace($Path)) {
     $Path = Join-Path $repoRoot "tests"
 }
 
 function Get-Pester5Module {
-    # Prefer 5.x (stable Configuration + return object); allow 6+ only if no 5.x
-    $all = @(Get-Module -ListAvailable -Name Pester | Where-Object { $_.Version -ge [version]"5.5.0" } | Sort-Object Version -Descending)
-    $v5 = @($all | Where-Object { $_.Version -lt [version]"6.0.0" })
-    if ($v5.Count -gt 0) { return $v5[0] }
-    if ($all.Count -gt 0) { return $all[0] }
-    return $null
+    return Get-Module -ListAvailable -Name Pester |
+        Where-Object { $_.Version -eq $script:AIWorkspacePesterVersion } |
+        Select-Object -First 1
 }
 
 $pester5 = Get-Pester5Module
@@ -37,7 +35,7 @@ if (-not $pester5 -and -not $SkipInstall) {
         try {
             [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
         }
-        catch { }
+        catch { Write-Verbose "TLS 1.2 setup failed: $($_.Exception.Message)" }
         try {
             $nuget = Get-PackageProvider -Name NuGet -ErrorAction SilentlyContinue
             if (-not $nuget -or $nuget.Version -lt [version]"2.8.5.201") {
@@ -48,7 +46,7 @@ if (-not $pester5 -and -not $SkipInstall) {
             Write-Warning "NuGet provider install failed: $($_.Exception.Message)"
         }
         Set-PSRepository -Name PSGallery -InstallationPolicy Trusted -ErrorAction SilentlyContinue
-        Install-Module -Name Pester -MinimumVersion 5.5.0 -Scope CurrentUser -Force -SkipPublisherCheck -AllowClobber -Confirm:$false
+        Install-Module -Name Pester -RequiredVersion $script:AIWorkspacePesterVersion -Scope CurrentUser -Force -SkipPublisherCheck -AllowClobber -Confirm:$false
     }
     $pester5 = Get-Pester5Module
 }
@@ -86,7 +84,8 @@ try {
     $result = Invoke-Pester -Configuration $cfg -PassThru -ErrorAction SilentlyContinue
 }
 catch {
-    # Older Pester 5 Configuration path may not accept -PassThru with -Configuration
+    # Older Pester 5 Configuration path may not accept -PassThru with -Configuration.
+    Write-Verbose "Pester PassThru fallback: $($_.Exception.Message)"
 }
 if ($null -eq $result) {
     $result = Invoke-Pester -Configuration $cfg

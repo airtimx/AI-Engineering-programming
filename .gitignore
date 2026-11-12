@@ -46,3 +46,4 @@ workspace/cache/.batch-progress.json
 # Pester / local
 TestResults.xml
 coverage.xml
+dist/
